@@ -1,0 +1,6 @@
+{
+  "name": "Mini PACS Web - Rayos X",
+  "description": "Sistema Mini PACS Web profesional para gestión de pacientes, estudios DICOM (Mindray DigiEye 330 Series), integración con Orthanc, visor de imágenes médicas, auditoría y roles.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
