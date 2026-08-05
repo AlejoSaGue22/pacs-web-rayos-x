@@ -126,8 +126,18 @@ export default function App() {
 
   // Role Switch
   const handleSwitchRole = async (role: UserRole) => {
-    const newUser = await PacsApiService.switchRole(role);
-    setCurrentUser(newUser);
+    try {
+      const result = await PacsApiService.switchRole(role);
+      setCurrentUser(result.user);
+      loadData();
+    } catch (e) {
+      console.error('Error cambiando rol:', e);
+    }
+  };
+
+  const handleLogin = async (role: UserRole) => {
+    const user = PacsApiService.getCurrentUser();
+    setCurrentUser(user);
     loadData();
   };
 
@@ -238,9 +248,8 @@ export default function App() {
       {/* Login / Role Switch Modal */}
       {showLoginModal && (
         <LoginModal
-          users={usersList}
-          activeUser={currentUser}
-          onSelectRole={handleSwitchRole}
+          onLogin={handleLogin}
+          onSwitchRole={handleSwitchRole}
           onClose={() => setShowLoginModal(false)}
         />
       )}

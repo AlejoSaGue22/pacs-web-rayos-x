@@ -1,48 +1,49 @@
-import { Patient, DicomStudy, User, AuditLog, OrthancStatus, PACSConfig } from '../src/types/pacs.js';
-import { INITIAL_USERS, INITIAL_PATIENTS, INITIAL_STUDIES, INITIAL_AUDIT_LOGS, INITIAL_ORTHANC_STATUS, INITIAL_PACS_CONFIG } from './mockData.js';
+import { PrismaClient } from '../src/generated/prisma/index.js';
+import { OrthancClient } from './orthancClient.js';
+
+const prisma = new PrismaClient();
 
 class PacsStore {
-  private users: User[] = [...INITIAL_USERS];
-  private patients: Patient[] = [...INITIAL_PATIENTS];
-  private studies: DicomStudy[] = [...INITIAL_STUDIES];
-  private auditLogs: AuditLog[] = [...INITIAL_AUDIT_LOGS];
-  private orthancStatus: OrthancStatus = { ...INITIAL_ORTHANC_STATUS };
-  private pacsConfig: PACSConfig = { ...INITIAL_PACS_CONFIG };
-
   // --- Patients ---
-  getPatients(search?: string) {
-    let result = this.patients.filter(p => !p.isDeleted);
+  async getPatients(search?: string) {
+    const where: any = { isDeleted: false };
     if (search && search.trim() !== '') {
       const term = search.toLowerCase().trim();
-      result = result.filter(
-        p =>
-          p.firstName.toLowerCase().includes(term) ||
-          p.lastName.toLowerCase().includes(term) ||
-          p.documentNumber.includes(term) ||
-          (p.email && p.email.toLowerCase().includes(term))
-      );
+      where.OR = [
+        { firstName: { contains: term, mode: 'insensitive' } },
+        { lastName: { contains: term, mode: 'insensitive' } },
+        { documentNumber: { contains: term } },
+        { email: { contains: term, mode: 'insensitive' } },
+      ];
     }
-    return result;
+    return prisma.patient.findMany({ where, orderBy: { createdAt: 'desc' } });
   }
 
-  getPatientById(id: string) {
-    return this.patients.find(p => p.id === id && !p.isDeleted);
+  async getPatientById(id: string) {
+    return prisma.patient.findFirst({ where: { id, isDeleted: false } });
   }
 
-  createPatient(patientData: Omit<Patient, 'id' | 'createdAt' | 'updatedAt' | 'isDeleted' | 'studyCount'>, userId: string, userName: string, userRole: any) {
+  async createPatient(patientData: any, userId: string, userName: string, userRole: any) {
     const newId = `pat-${patientData.documentNumber}`;
     const now = new Date().toISOString();
-    const newPatient: Patient = {
-      ...patientData,
-      id: newId,
-      createdAt: now,
-      updatedAt: now,
-      isDeleted: false,
-      studyCount: 0,
-    };
-    this.patients.unshift(newPatient);
+    const newPatient = await prisma.patient.create({
+      data: {
+        id: newId,
+        documentNumber: patientData.documentNumber,
+        firstName: patientData.firstName,
+        lastName: patientData.lastName,
+        birthDate: patientData.birthDate || '',
+        gender: patientData.gender || 'O',
+        phone: patientData.phone || '',
+        email: patientData.email || null,
+        createdAt: now,
+        updatedAt: now,
+        isDeleted: false,
+        studyCount: 0,
+      },
+    });
 
-    this.addAuditLog({
+    await this.addAuditLog({
       userId,
       userName,
       userRole,
@@ -54,32 +55,37 @@ class PacsStore {
     return newPatient;
   }
 
-  updatePatient(id: string, updates: Partial<Patient>, userId: string, userName: string, userRole: any) {
-    const patient = this.patients.find(p => p.id === id);
+  async updatePatient(id: string, updates: any, userId: string, userName: string, userRole: any) {
+    const patient = await prisma.patient.findFirst({ where: { id, isDeleted: false } });
     if (!patient) return null;
 
-    Object.assign(patient, updates, { updatedAt: new Date().toISOString() });
+    const updated = await prisma.patient.update({
+      where: { id },
+      data: { ...updates, updatedAt: new Date().toISOString() },
+    });
 
-    this.addAuditLog({
+    await this.addAuditLog({
       userId,
       userName,
       userRole,
       action: 'PATIENT_UPDATE',
-      description: `Actualización de paciente ${patient.firstName} ${patient.lastName} (Doc: ${patient.documentNumber})`,
+      description: `Actualización de paciente ${updated.firstName} ${updated.lastName} (Doc: ${updated.documentNumber})`,
       ipAddress: '127.0.0.1',
     });
 
-    return patient;
+    return updated;
   }
 
-  deletePatient(id: string, userId: string, userName: string, userRole: any) {
-    const patient = this.patients.find(p => p.id === id);
+  async deletePatient(id: string, userId: string, userName: string, userRole: any) {
+    const patient = await prisma.patient.findFirst({ where: { id, isDeleted: false } });
     if (!patient) return false;
 
-    patient.isDeleted = true;
-    patient.updatedAt = new Date().toISOString();
+    await prisma.patient.update({
+      where: { id },
+      data: { isDeleted: true, updatedAt: new Date().toISOString() },
+    });
 
-    this.addAuditLog({
+    await this.addAuditLog({
       userId,
       userName,
       userRole,
@@ -92,50 +98,61 @@ class PacsStore {
   }
 
   // --- Studies ---
-  getStudies(filters?: { searchTerm?: string; modality?: string; dateFrom?: string; dateTo?: string; status?: string }) {
-    let result = [...this.studies];
+  async getStudies(filters?: { searchTerm?: string; modality?: string; dateFrom?: string; dateTo?: string; status?: string }) {
+    const where: any = {};
 
     if (filters) {
       if (filters.searchTerm) {
         const term = filters.searchTerm.toLowerCase().trim();
-        result = result.filter(
-          s =>
-            s.patientName.toLowerCase().includes(term) ||
-            s.patientDocument.includes(term) ||
-            s.accessionNumber.toLowerCase().includes(term) ||
-            s.studyDescription.toLowerCase().includes(term) ||
-            s.id.toLowerCase().includes(term)
-        );
+        where.OR = [
+          { patientName: { contains: term, mode: 'insensitive' } },
+          { patientDocument: { contains: term } },
+          { accessionNumber: { contains: term, mode: 'insensitive' } },
+          { studyDescription: { contains: term, mode: 'insensitive' } },
+          { id: { contains: term, mode: 'insensitive' } },
+        ];
       }
       if (filters.modality && filters.modality !== 'ALL') {
-        result = result.filter(s => s.modality === filters.modality);
+        where.modality = filters.modality;
       }
       if (filters.status && filters.status !== 'ALL') {
-        result = result.filter(s => s.status === filters.status);
+        where.status = filters.status;
       }
       if (filters.dateFrom) {
-        result = result.filter(s => s.studyDate >= filters.dateFrom!);
+        where.studyDate = { ...(where.studyDate || {}), gte: filters.dateFrom };
       }
       if (filters.dateTo) {
-        result = result.filter(s => s.studyDate <= filters.dateTo!);
+        where.studyDate = { ...(where.studyDate || {}), lte: filters.dateTo };
       }
     }
 
-    // Sort by date desc
-    return result.sort((a, b) => new Date(`${b.studyDate}T${b.studyTime}`).getTime() - new Date(`${a.studyDate}T${a.studyTime}`).getTime());
+    const studies = await prisma.study.findMany({
+      where,
+      include: { series: { include: { instances: true } } },
+      orderBy: [{ studyDate: 'desc' }, { studyTime: 'desc' }],
+    });
+
+    return studies;
   }
 
-  getStudyById(id: string) {
-    return this.studies.find(s => s.id === id);
+  async getStudyById(id: string) {
+    return prisma.study.findUnique({
+      where: { id },
+      include: { series: { include: { instances: true } } },
+    });
   }
 
-  updateStudyStatus(id: string, status: any, userId: string, userName: string, userRole: any) {
-    const study = this.studies.find(s => s.id === id);
+  async updateStudyStatus(id: string, status: any, userId: string, userName: string, userRole: any) {
+    const study = await prisma.study.findUnique({ where: { id } });
     if (!study) return null;
 
-    study.status = status;
+    const updated = await prisma.study.update({
+      where: { id },
+      data: { status },
+      include: { series: { include: { instances: true } } },
+    });
 
-    this.addAuditLog({
+    await this.addAuditLog({
       userId,
       userName,
       userRole,
@@ -144,92 +161,300 @@ class PacsStore {
       ipAddress: '127.0.0.1',
     });
 
-    return study;
+    return updated;
   }
 
   // --- DICOM Instances ---
-  getInstanceById(instanceId: string) {
-    for (const study of this.studies) {
-      for (const series of study.series) {
-        const inst = series.instances.find(i => i.id === instanceId);
-        if (inst) {
-          return { study, series, instance: inst };
-        }
-      }
-    }
-    return null;
+  async getInstanceById(instanceId: string) {
+    const instance = await prisma.instance.findUnique({
+      where: { id: instanceId },
+      include: {
+        series: {
+          include: {
+            study: true,
+          },
+        },
+      },
+    });
+
+    if (!instance) return null;
+
+    return {
+      study: instance.series.study,
+      series: instance.series,
+      instance: instance,
+    };
   }
 
   // --- Orthanc Synchronization ---
-  syncWithOrthanc(userId: string, userName: string, userRole: any) {
-    this.orthancStatus.lastSyncTime = new Date().toISOString();
-    this.orthancStatus.online = true;
+  async syncWithOrthanc(userId: string, userName: string, userRole: any) {
+    let syncedCount = 0;
+    let online = false;
 
-    // Add audit entry
-    this.addAuditLog({
-      userId,
-      userName,
-      userRole,
+    try {
+      const orthancStudies = await OrthancClient.getStudies();
+      online = true;
+
+      for (const orthancStudyId of orthancStudies) {
+        const exists = await prisma.study.findUnique({ where: { id: orthancStudyId } });
+        if (exists) continue;
+
+        try {
+          const fullStudy = await OrthancClient.getStudy(orthancStudyId);
+          const studyTags = fullStudy.MainDicomTags || {};
+
+          const studyInstanceIds = await this.getInstanceIdsForStudy(orthancStudyId);
+          const firstInstId = studyInstanceIds.length > 0 ? studyInstanceIds[0] : null;
+
+          const instanceTags = firstInstId
+            ? await OrthancClient.getInstanceTags(firstInstId)
+            : {};
+
+          const patientId = instanceTags.PatientID || '';
+          const patientName = instanceTags.PatientName || '';
+
+          const existingPatient = await prisma.patient.findFirst({
+            where: { documentNumber: patientId },
+          });
+
+          if (!existingPatient && patientId) {
+            const pnParts = patientName ? patientName.split('^') : ['', ''];
+            const now = new Date().toISOString();
+            await prisma.patient.create({
+              data: {
+                id: `pat-${patientId}`,
+                documentNumber: patientId,
+                firstName: pnParts[1] || pnParts[0] || 'Desconocido',
+                lastName: pnParts[0] || '',
+                birthDate: instanceTags.PatientBirthDate || '',
+                gender: instanceTags.PatientSex || 'O',
+                phone: instanceTags.PatientPhone || '',
+                email: null,
+                createdAt: now,
+                updatedAt: now,
+                isDeleted: false,
+                studyCount: 0,
+              },
+            });
+          }
+
+          const studyDate = studyTags.StudyDate
+            ? `${studyTags.StudyDate.slice(0, 4)}-${studyTags.StudyDate.slice(4, 6)}-${studyTags.StudyDate.slice(6, 8)}`
+            : '';
+          const studyTimeStr = studyTags.StudyTime || '000000';
+          const studyTime = `${studyTimeStr.slice(0, 2)}:${studyTimeStr.slice(2, 4)}:${studyTimeStr.slice(4, 6)}`;
+
+          await prisma.study.create({
+            data: {
+              id: orthancStudyId,
+              accessionNumber: studyTags.AccessionNumber || `ACC-${orthancStudyId.slice(-8)}`,
+              studyInstanceUid: studyTags.StudyInstanceUID || '',
+              patientId: patientId ? `pat-${patientId}` : '',
+              patientDocument: patientId,
+              patientName: patientName || '',
+              patientSex: instanceTags.PatientSex || 'O',
+              patientBirthDate: instanceTags.PatientBirthDate || '',
+              studyDate,
+              studyTime,
+              studyDescription: studyTags.StudyDescription || '',
+              modality: instanceTags.Modality || 'DX',
+              referringPhysician: instanceTags.ReferringPhysicianName || '',
+              performingTechnician: '',
+              institutionName: studyTags.InstitutionName || instanceTags.InstitutionName || '',
+              manufacturer: instanceTags.Manufacturer || '',
+              manufacturerModelName: instanceTags.ManufacturerModelName || '',
+              numberOfSeries: fullStudy.Series ? fullStudy.Series.length : 0,
+              numberOfInstances: studyInstanceIds.length,
+              status: 'Recibido',
+              notes: null,
+              createdAt: new Date().toISOString(),
+            },
+          });
+
+          const seriesIds = fullStudy.Series || [];
+          for (const seriesId of seriesIds) {
+            try {
+              const fullSeries = await OrthancClient.getSeries(seriesId);
+              const seriesTags = fullSeries.MainDicomTags || {};
+
+              await prisma.series.create({
+                data: {
+                  id: seriesId,
+                  seriesNumber: parseInt(seriesTags.SeriesNumber || '1'),
+                  seriesDescription: seriesTags.SeriesDescription || '',
+                  modality: seriesTags.Modality || 'DX',
+                  seriesInstanceUid: seriesTags.SeriesInstanceUID || '',
+                  bodyPartExamined: seriesTags.BodyPartExamined || '',
+                  numberOfInstances: fullSeries.Instances ? fullSeries.Instances.length : 0,
+                  studyId: orthancStudyId,
+                },
+              });
+
+              const instanceIds = fullSeries.Instances || [];
+              for (const instId of instanceIds) {
+                try {
+                  const fullInst = await OrthancClient.getInstance(instId);
+                  const tags = await OrthancClient.getInstanceTags(instId);
+                  const instTags = fullInst.MainDicomTags || {};
+
+                  await prisma.instance.create({
+                    data: {
+                      id: instId,
+                      instanceNumber: parseInt(instTags.InstanceNumber || '1'),
+                      sopInstanceUid: instTags.SOPInstanceUID || '',
+                      numberOfFrames: parseInt(instTags.NumberOfFrames || '1'),
+                      rows: parseInt(instTags.Rows || '512'),
+                      columns: parseInt(instTags.Columns || '512'),
+                      windowCenter: parseInt(instTags.WindowCenter || '2048'),
+                      windowWidth: parseInt(instTags.WindowWidth || '4096'),
+                      previewUrl: `/api/orthanc/instances/${instId}/preview`,
+                      fileSize: 0,
+                      tags: tags || {},
+                      kvp: tags.KVP ? parseFloat(tags.KVP) : null,
+                      exposureTimeMs: tags.ExposureTime ? parseInt(tags.ExposureTime) : null,
+                      tubeCurrentMA: tags.XRayTubeCurrent ? parseInt(tags.XRayTubeCurrent) : null,
+                      mAs: tags.Exposure ? parseFloat(tags.Exposure) : null,
+                      viewPosition: tags.ViewPosition || null,
+                      seriesId,
+                    },
+                  });
+                } catch {
+                  // skip individual instance errors
+                }
+              }
+            } catch {
+              // skip individual series errors
+            }
+          }
+
+          syncedCount++;
+        } catch {
+          // skip individual study errors
+        }
+      }
+    } catch {
+      online = false;
+    }
+
+    const newSyncTime = new Date().toISOString();
+    const studyCount = await prisma.study.count();
+
+    await prisma.orthancStatus.upsert({
+      where: { id: 1 },
+      update: { lastSyncTime: newSyncTime, online },
+      create: {
+        id: 1, online, version: '', aetitle: 'ORTHANC', dicomPort: 4242, httpPort: 8042,
+        storageUsageMb: 0, patientCount: 0, studyCount: 0, seriesCount: 0, instanceCount: 0,
+        lastSyncTime: newSyncTime, connectedEquipment: [],
+      },
+    });
+
+    await this.addAuditLog({
+      userId, userName, userRole,
       action: 'ORTHANC_SYNC',
-      description: `Sincronización manual ejecutada con Servidor Orthanc PACS (${this.pacsConfig.orthancServerUrl})`,
+      description: `Sincronización con Servidor Orthanc. ${syncedCount} estudios nuevos importados.`,
       ipAddress: '127.0.0.1',
-      details: `Servidor Orthanc activo. AETitle Local: ${this.pacsConfig.localAETitle}. Modality Mindray AET: ${this.pacsConfig.remoteAETitle}`,
+      details: `Servidor Orthanc: ${online ? 'en línea' : 'fuera de línea'}. Total estudios en BD: ${studyCount}.`,
     });
 
     return {
-      success: true,
-      timestamp: this.orthancStatus.lastSyncTime,
-      syncedStudies: this.studies.length,
-      status: this.orthancStatus,
+      success: online,
+      timestamp: newSyncTime,
+      syncedStudies: studyCount,
+      newStudies: syncedCount,
     };
+  }
+
+  private async getInstanceIdsForStudy(studyId: string): Promise<string[]> {
+    const instances = await OrthancClient.getInstancesOfStudy(studyId);
+    if (!Array.isArray(instances)) return [];
+    return instances.map((i: any) => i.ID || i);
   }
 
   // --- Audit Logs ---
-  getAuditLogs(actionFilter?: string, search?: string) {
-    let result = [...this.auditLogs];
+  async getAuditLogs(actionFilter?: string, search?: string) {
+    const where: any = {};
 
     if (actionFilter && actionFilter !== 'ALL') {
-      result = result.filter(l => l.action === actionFilter);
+      where.action = actionFilter;
     }
     if (search && search.trim() !== '') {
       const term = search.toLowerCase().trim();
-      result = result.filter(
-        l =>
-          l.userName.toLowerCase().includes(term) ||
-          l.description.toLowerCase().includes(term) ||
-          (l.details && l.details.toLowerCase().includes(term))
-      );
+      where.OR = [
+        { userName: { contains: term, mode: 'insensitive' } },
+        { description: { contains: term, mode: 'insensitive' } },
+        { details: { contains: term, mode: 'insensitive' } },
+      ];
     }
 
-    return result.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return prisma.auditLog.findMany({
+      where,
+      orderBy: { timestamp: 'desc' },
+    });
   }
 
-  addAuditLog(entry: { userId: string; userName: string; userRole: any; action: AuditLog['action']; description: string; ipAddress: string; details?: string }) {
-    const newLog: AuditLog = {
-      id: `aud-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      timestamp: new Date().toISOString(),
-      ...entry,
-    };
-    this.auditLogs.unshift(newLog);
+  async addAuditLog(entry: { userId: string; userName: string; userRole: any; action: string; description: string; ipAddress: string; details?: string }) {
+    return prisma.auditLog.create({
+      data: {
+        id: `aud-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        timestamp: new Date().toISOString(),
+        userId: entry.userId,
+        userName: entry.userName,
+        userRole: entry.userRole || 'Admin',
+        action: entry.action,
+        description: entry.description,
+        ipAddress: entry.ipAddress,
+        details: entry.details || null,
+      },
+    });
   }
 
   // --- Orthanc Status & Config ---
-  getOrthancStatus() {
-    this.orthancStatus.studyCount = this.studies.length;
-    this.orthancStatus.patientCount = this.getPatients().length;
-    this.orthancStatus.seriesCount = this.studies.reduce((acc, s) => acc + s.numberOfSeries, 0);
-    this.orthancStatus.instanceCount = this.studies.reduce((acc, s) => acc + s.numberOfInstances, 0);
-    return this.orthancStatus;
+  async getOrthancStatus() {
+    const status = await prisma.orthancStatus.findFirst();
+
+    let systemInfo: any = {};
+    try {
+      systemInfo = await OrthancClient.getSystem();
+    } catch {
+      // Orthanc offline
+    }
+
+    const studyCount = await prisma.study.count();
+    const patientCount = await prisma.patient.count({ where: { isDeleted: false } });
+    const seriesCount = await prisma.series.count();
+    const instanceCount = await prisma.instance.count();
+
+    const connectedEquipment = status?.connectedEquipment || [];
+
+    return {
+      online: !!(systemInfo.ApiVersion),
+      version: systemInfo.Version || (status?.version || ''),
+      aetitle: systemInfo.DicomAet || (status?.aetitle || ''),
+      dicomPort: systemInfo.DicomPort || (status?.dicomPort || 4242),
+      httpPort: systemInfo.HttpPort || (status?.httpPort || 8042),
+      storageUsageMb: status?.storageUsageMb || 0,
+      patientCount,
+      studyCount,
+      seriesCount,
+      instanceCount,
+      lastSyncTime: status?.lastSyncTime || '',
+      connectedEquipment,
+    };
   }
 
-  getPacsConfig() {
-    return this.pacsConfig;
+  async getPacsConfig() {
+    return prisma.pacsConfig.findFirst();
   }
 
-  updatePacsConfig(newConfig: Partial<PACSConfig>, userId: string, userName: string, userRole: any) {
-    Object.assign(this.pacsConfig, newConfig);
+  async updatePacsConfig(newConfig: any, userId: string, userName: string, userRole: any) {
+    const updated = await prisma.pacsConfig.upsert({
+      where: { id: 1 },
+      update: { ...newConfig },
+      create: { id: 1, ...newConfig },
+    });
 
-    this.addAuditLog({
+    await this.addAuditLog({
       userId,
       userName,
       userRole,
@@ -238,12 +463,12 @@ class PacsStore {
       ipAddress: '127.0.0.1',
     });
 
-    return this.pacsConfig;
+    return updated;
   }
 
   // --- Users ---
-  getUsers() {
-    return this.users;
+  async getUsers() {
+    return prisma.user.findMany();
   }
 }
 

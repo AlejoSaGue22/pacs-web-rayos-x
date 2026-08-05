@@ -1,0 +1,139 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String     @id
+  name         String
+  email        String     @unique
+  role         String
+  passwordHash String     @default("")
+  avatar       String?
+  lastLogin    String?
+  auditLogs    AuditLog[]
+}
+
+model Patient {
+  id             String   @id
+  documentNumber String
+  firstName      String
+  lastName       String
+  birthDate      String
+  gender         String
+  phone          String
+  email          String?
+  createdAt      String
+  updatedAt      String
+  isDeleted      Boolean  @default(false)
+  studyCount     Int      @default(0)
+  studies        Study[]
+}
+
+model Study {
+  id                    String   @id
+  accessionNumber       String
+  studyInstanceUid      String
+  patientId             String
+  patientDocument       String
+  patientName           String
+  patientSex            String
+  patientBirthDate      String
+  studyDate             String
+  studyTime             String
+  studyDescription      String
+  modality              String
+  referringPhysician    String
+  performingTechnician  String
+  institutionName       String
+  manufacturer          String
+  manufacturerModelName String
+  numberOfSeries        Int
+  numberOfInstances     Int
+  status                String
+  notes                 String?
+  createdAt             String
+  patient               Patient  @relation(fields: [patientId], references: [id])
+  series                Series[]
+}
+
+model Series {
+  id                String     @id
+  seriesNumber      Int
+  seriesDescription String
+  modality          String
+  seriesInstanceUid String
+  bodyPartExamined  String
+  numberOfInstances Int
+  studyId           String
+  study             Study      @relation(fields: [studyId], references: [id])
+  instances         Instance[]
+}
+
+model Instance {
+  id             String  @id
+  instanceNumber Int
+  sopInstanceUid String
+  numberOfFrames Int
+  rows           Int
+  columns        Int
+  windowCenter   Int
+  windowWidth    Int
+  previewUrl     String
+  fileSize       Int
+  tags           Json
+  kvp            Int?
+  exposureTimeMs Int?
+  tubeCurrentMA  Int?
+  mAs            Float?
+  viewPosition   String?
+  seriesId       String
+  series         Series  @relation(fields: [seriesId], references: [id])
+}
+
+model AuditLog {
+  id          String  @id
+  timestamp   String
+  userId      String
+  userName    String
+  userRole    String
+  action      String
+  description String
+  ipAddress   String
+  details     String?
+  user        User?   @relation(fields: [userId], references: [id])
+}
+
+model PacsConfig {
+  id                     Int      @id @default(1)
+  orthancServerUrl       String
+  localAETitle           String
+  remoteAETitle          String
+  remoteIp               String
+  remotePort             Int
+  autoSyncIntervalSec    Int
+  retentionDays          Int
+  anonymizeExportDefault Boolean
+  institutionName        String
+}
+
+model OrthancStatus {
+  id                 Int    @id @default(1)
+  online             Boolean
+  version            String
+  aetitle            String
+  dicomPort          Int
+  httpPort           Int
+  storageUsageMb     Float
+  patientCount       Int
+  studyCount         Int
+  seriesCount        Int
+  instanceCount      Int
+  lastSyncTime       String
+  connectedEquipment Json
+}

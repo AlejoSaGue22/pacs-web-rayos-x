@@ -2,6 +2,15 @@ import { Patient, DicomStudy, User, AuditLog, OrthancStatus, PACSConfig, StudyFi
 
 const API_BASE = '/api';
 
+function authHeaders(): Record<string, string> {
+  const token = localStorage.getItem('pacs_token');
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 export class PacsApiService {
   // Auth & Active User Session
   static getCurrentUser(): User {
@@ -9,16 +18,15 @@ export class PacsApiService {
     if (saved) {
       try {
         return JSON.parse(saved);
-      } catch (e) {
+      } catch {
         // fallback
       }
     }
     return {
-      id: 'usr-002',
-      name: 'Dra. Patricia Gómez',
-      email: 'pgomez@rayosx.med.co',
-      role: 'Radiologo',
-      avatar: 'https://images.unsplash.com/photo-1594824813566-88855ce78906?w=150&auto=format&fit=crop&q=80',
+      id: 'anon',
+      name: 'Invitado',
+      email: '',
+      role: 'Consulta',
     };
   }
 
@@ -26,26 +34,47 @@ export class PacsApiService {
     localStorage.setItem('pacs_user', JSON.stringify(user));
   }
 
-  static async switchRole(role: UserRole): Promise<User> {
-    try {
-      const res = await fetch(`${API_BASE}/auth/switch-role`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role }),
-      });
-      const data = await res.json();
-      this.setCurrentUser(data.user);
-      return data.user;
-    } catch (e) {
-      const fallbackUser: User = {
-        id: `usr-${role.toLowerCase()}`,
-        name: `Usuario ${role}`,
-        email: `${role.toLowerCase()}@rayosx.med.co`,
-        role,
-      };
-      this.setCurrentUser(fallbackUser);
-      return fallbackUser;
+  static getToken(): string | null {
+    return localStorage.getItem('pacs_token');
+  }
+
+  static isAuthenticated(): boolean {
+    return !!this.getToken();
+  }
+
+  static async login(email: string, password: string): Promise<{ user: User; token: string }> {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Error de autenticación');
     }
+    localStorage.setItem('pacs_token', data.token);
+    this.setCurrentUser(data.user);
+    return data;
+  }
+
+  static logout() {
+    localStorage.removeItem('pacs_token');
+    localStorage.removeItem('pacs_user');
+  }
+
+  static async switchRole(role: UserRole): Promise<{ user: User; token: string }> {
+    const res = await fetch(`${API_BASE}/auth/switch-role`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ role }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Error al cambiar rol');
+    }
+    localStorage.setItem('pacs_token', data.token);
+    this.setCurrentUser(data.user);
+    return data;
   }
 
   // Dashboard Stats
@@ -70,47 +99,29 @@ export class PacsApiService {
   }
 
   static async createPatient(patientData: Omit<Patient, 'id' | 'createdAt' | 'updatedAt' | 'isDeleted' | 'studyCount'>): Promise<Patient> {
-    const user = this.getCurrentUser();
     const res = await fetch(`${API_BASE}/patients`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...patientData,
-        userId: user.id,
-        userName: user.name,
-        userRole: user.role,
-      }),
+      headers: authHeaders(),
+      body: JSON.stringify(patientData),
     });
     if (!res.ok) throw new Error('Error al crear paciente');
     return res.json();
   }
 
   static async updatePatient(id: string, updates: Partial<Patient>): Promise<Patient> {
-    const user = this.getCurrentUser();
     const res = await fetch(`${API_BASE}/patients/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...updates,
-        userId: user.id,
-        userName: user.name,
-        userRole: user.role,
-      }),
+      headers: authHeaders(),
+      body: JSON.stringify(updates),
     });
     if (!res.ok) throw new Error('Error al actualizar paciente');
     return res.json();
   }
 
   static async deletePatient(id: string): Promise<boolean> {
-    const user = this.getCurrentUser();
     const res = await fetch(`${API_BASE}/patients/${id}`, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userId: user.id,
-        userName: user.name,
-        userRole: user.role,
-      }),
+      headers: authHeaders(),
     });
     if (!res.ok) throw new Error('Error al eliminar paciente');
     return true;
@@ -138,16 +149,10 @@ export class PacsApiService {
   }
 
   static async updateStudyStatus(id: string, status: DicomStudy['status']): Promise<DicomStudy> {
-    const user = this.getCurrentUser();
     const res = await fetch(`${API_BASE}/studies/${id}/status`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        status,
-        userId: user.id,
-        userName: user.name,
-        userRole: user.role,
-      }),
+      headers: authHeaders(),
+      body: JSON.stringify({ status }),
     });
     if (!res.ok) throw new Error('Error al cambiar estado del estudio');
     return res.json();
@@ -161,15 +166,9 @@ export class PacsApiService {
   }
 
   static async syncOrthanc() {
-    const user = this.getCurrentUser();
     const res = await fetch(`${API_BASE}/orthanc/sync`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userId: user.id,
-        userName: user.name,
-        userRole: user.role,
-      }),
+      headers: authHeaders(),
     });
     if (!res.ok) throw new Error('Error durante la sincronización con Orthanc');
     return res.json();
@@ -200,16 +199,10 @@ export class PacsApiService {
   }
 
   static async updatePacsConfig(config: Partial<PACSConfig>): Promise<PACSConfig> {
-    const user = this.getCurrentUser();
     const res = await fetch(`${API_BASE}/config`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...config,
-        userId: user.id,
-        userName: user.name,
-        userRole: user.role,
-      }),
+      headers: authHeaders(),
+      body: JSON.stringify(config),
     });
     if (!res.ok) throw new Error('Error al guardar configuración');
     return res.json();

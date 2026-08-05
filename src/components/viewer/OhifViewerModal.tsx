@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { DicomStudy, DicomSeries, DicomInstance } from '../../types/pacs';
 import { DicomCanvasRenderer, MeasurementItem } from './DicomCanvasRenderer';
+import { CornerstoneViewport } from './CornerstoneViewport';
 
 interface OhifViewerModalProps {
   study: DicomStudy;
@@ -407,60 +408,42 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
         <div className="flex-1 bg-black p-2 relative flex items-center justify-center overflow-hidden">
           {layoutMode === '1x1' && currentSeries && currentInstance && (
             <div className="w-full h-full rounded-lg border border-slate-800 overflow-hidden relative">
-              <DicomCanvasRenderer
-                bodyPart={currentSeries.bodyPartExamined}
-                viewPosition={currentInstance.viewPosition || 'AP'}
-                windowCenter={windowCenter}
-                windowWidth={windowWidth}
-                invert={invert}
-                rotation={rotation}
-                flipH={flipH}
-                flipV={flipV}
-                zoom={zoom}
-                pan={pan}
-                activeTool={activeTool}
-                patientName={study.patientName}
-                patientId={study.patientDocument}
-                kvp={currentInstance.kvp}
-                mAs={currentInstance.mAs}
-                seriesDescription={currentSeries.seriesDescription}
-                measurements={measurements}
-                onAddMeasurement={m => setMeasurements(prev => [...prev, m])}
-                onWindowChange={(wc, ww) => {
-                  setWindowCenter(wc);
-                  setWindowWidth(ww);
-                }}
-                onPanChange={p => setPan(p)}
-                onZoomChange={z => setZoom(z)}
+              <CornerstoneViewport
+                instanceId={currentInstance.id}
+                className="w-full h-full"
               />
+              {measurements.map(m => (
+                <div key={m.id} className="absolute text-amber-400 text-xs font-mono" style={{ left: m.points[0]?.x || 0, top: (m.points[0]?.y || 0) - 20, pointerEvents: 'none' }}>
+                  {m.value}
+                </div>
+              ))}
             </div>
           )}
 
           {layoutMode === '1x2' && (
             <div className="w-full h-full grid grid-cols-2 gap-2">
-              {study.series.slice(0, 2).map((s, idx) => (
-                <div key={s.id} className="w-full h-full rounded-lg border border-slate-800 overflow-hidden relative">
-                  <DicomCanvasRenderer
-                    bodyPart={s.bodyPartExamined}
-                    viewPosition={s.instances[0]?.viewPosition || 'AP'}
-                    windowCenter={windowCenter}
-                    windowWidth={windowWidth}
-                    invert={invert}
-                    rotation={rotation}
-                    flipH={flipH}
-                    flipV={flipV}
-                    zoom={zoom}
-                    pan={pan}
-                    activeTool={activeTool}
-                    patientName={study.patientName}
-                    patientId={study.patientDocument}
-                    kvp={s.instances[0]?.kvp}
-                    mAs={s.instances[0]?.mAs}
-                    seriesDescription={s.seriesDescription}
-                    measurements={idx === 0 ? measurements : []}
-                  />
-                </div>
-              ))}
+              {study.series.slice(0, 2).map((s, idx) => {
+                const inst = s.instances[0];
+                return (
+                  <div key={s.id} className="w-full h-full rounded-lg border border-slate-800 overflow-hidden relative">
+                    {inst ? (
+                      <CornerstoneViewport
+                        instanceId={inst.id}
+                        className="w-full h-full"
+                      />
+                    ) : (
+                      <DicomCanvasRenderer
+                        bodyPart={s.bodyPartExamined}
+                        viewPosition="AP"
+                        windowCenter={2048} windowWidth={4096}
+                        invert={false} rotation={0} flipH={false} flipV={false}
+                        zoom={zoom} pan={pan} activeTool={activeTool}
+                        measurements={idx === 0 ? measurements : []}
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -468,25 +451,24 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
             <div className="w-full h-full grid grid-cols-2 grid-rows-2 gap-2">
               {[0, 1, 2, 3].map(idx => {
                 const s = study.series[idx % study.series.length];
+                const inst = s?.instances[0];
                 return (
                   <div key={idx} className="w-full h-full rounded-lg border border-slate-800 overflow-hidden relative">
-                    <DicomCanvasRenderer
-                      bodyPart={s ? s.bodyPartExamined : 'CHEST'}
-                      viewPosition={s?.instances[0]?.viewPosition || 'AP'}
-                      windowCenter={windowCenter}
-                      windowWidth={windowWidth}
-                      invert={invert}
-                      rotation={rotation}
-                      flipH={flipH}
-                      flipV={flipV}
-                      zoom={zoom}
-                      pan={pan}
-                      activeTool={activeTool}
-                      patientName={study.patientName}
-                      patientId={study.patientDocument}
-                      seriesDescription={s ? s.seriesDescription : 'Proyección Adicional'}
-                      measurements={idx === 0 ? measurements : []}
-                    />
+                    {inst ? (
+                      <CornerstoneViewport
+                        instanceId={inst.id}
+                        className="w-full h-full"
+                      />
+                    ) : (
+                      <DicomCanvasRenderer
+                        bodyPart={s?.bodyPartExamined || 'CHEST'}
+                        viewPosition="AP"
+                        windowCenter={2048} windowWidth={4096}
+                        invert={false} rotation={0} flipH={false} flipV={false}
+                        zoom={zoom} pan={pan} activeTool={activeTool}
+                        measurements={idx === 0 ? measurements : []}
+                      />
+                    )}
                   </div>
                 );
               })}

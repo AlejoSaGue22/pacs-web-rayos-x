@@ -1,8 +1,12 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
+import bcrypt from 'bcryptjs';
 import { pacsStore } from './server/store.js';
+import { OrthancClient } from './server/orthancClient.js';
+import { authenticate, generateToken, AuthPayload } from './server/authMiddleware.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,12 +25,30 @@ async function startServer() {
   });
 
   // Auth Endpoints
-  app.post('/api/auth/login', (req, res) => {
-    const { email, role } = req.body;
-    const users = pacsStore.getUsers();
-    const user = users.find(u => u.email === email || u.role === role) || users[0];
+  app.post('/api/auth/login', async (req, res) => {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email y contraseña son requeridos' });
+    }
 
-    pacsStore.addAuditLog({
+    const users = await pacsStore.getUsers();
+    const user = users.find(u => u.email === email);
+    if (!user) {
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+
+    const valid = await bcrypt.compare(password, (user as any).passwordHash || '');
+    if (!valid) {
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+
+    const token = generateToken({
+      userId: user.id,
+      userRole: user.role,
+      userName: user.name,
+    });
+
+    await pacsStore.addAuditLog({
       userId: user.id,
       userName: user.name,
       userRole: user.role,
@@ -35,28 +57,31 @@ async function startServer() {
       ipAddress: req.ip || '127.0.0.1',
     });
 
-    res.json({
-      token: `jwt-mock-token-${user.id}-${Date.now()}`,
-      user,
-    });
+    res.json({ token, user });
   });
 
-  app.get('/api/auth/me', (req, res) => {
-    const users = pacsStore.getUsers();
-    res.json(users[0]);
+  app.get('/api/auth/me', authenticate, async (req, res) => {
+    const users = await pacsStore.getUsers();
+    const user = users.find(u => u.id === req.user?.userId) || users[0];
+    res.json(user);
   });
 
-  app.post('/api/auth/switch-role', (req, res) => {
+  app.post('/api/auth/switch-role', authenticate, async (req, res) => {
     const { role } = req.body;
-    const users = pacsStore.getUsers();
-    const targetUser = users.find(u => u.role === role) || {
-      id: `usr-custom-${Date.now()}`,
-      name: `Usuario ${role}`,
-      email: `${role.toLowerCase()}@rayosx.med.co`,
-      role: role,
-    };
+    const users = await pacsStore.getUsers();
+    const targetUser = users.find(u => u.role === role);
 
-    pacsStore.addAuditLog({
+    if (!targetUser) {
+      return res.status(404).json({ error: 'Rol no encontrado' });
+    }
+
+    const token = generateToken({
+      userId: targetUser.id,
+      userRole: targetUser.role,
+      userName: targetUser.name,
+    });
+
+    await pacsStore.addAuditLog({
       userId: targetUser.id,
       userName: targetUser.name,
       userRole: targetUser.role,
@@ -65,17 +90,17 @@ async function startServer() {
       ipAddress: req.ip || '127.0.0.1',
     });
 
-    res.json({ user: targetUser });
+    res.json({ token, user: targetUser });
   });
 
   // Dashboard Stats
-  app.get('/api/dashboard/stats', (req, res) => {
-    const allStudies = pacsStore.getStudies();
-    const allPatients = pacsStore.getPatients();
+  app.get('/api/dashboard/stats', async (req, res) => {
+    const allStudies = await pacsStore.getStudies();
+    const allPatients = await pacsStore.getPatients();
     const todayStr = new Date().toISOString().slice(0, 10);
 
     const studiesToday = allStudies.filter(s => s.studyDate === todayStr);
-    const studiesMonthCount = allStudies.length; // mock current month
+    const studiesMonthCount = allStudies.length;
 
     const modalityCounts: Record<string, number> = {};
     allStudies.forEach(s => {
@@ -88,62 +113,62 @@ async function startServer() {
     });
 
     const recentStudies = allStudies.slice(0, 5);
-    const recentAudit = pacsStore.getAuditLogs('ALL').slice(0, 5);
-    const orthanc = pacsStore.getOrthancStatus();
+    const recentAudit = (await pacsStore.getAuditLogs('ALL')).slice(0, 5);
+    const orthanc = await pacsStore.getOrthancStatus();
 
     res.json({
       totalPatients: allPatients.length,
       studiesToday: studiesToday.length,
       studiesMonth: studiesMonthCount,
-      totalStorageMb: orthanc.storageUsageMb,
+      totalStorageMb: orthanc?.storageUsageMb,
       modalityCounts,
       statusCounts,
       recentStudies,
       recentAudit,
-      orthancOnline: orthanc.online,
+      orthancOnline: orthanc?.online,
     });
   });
 
   // Patients CRUD
-  app.get('/api/patients', (req, res) => {
+  app.get('/api/patients', async (req, res) => {
     const search = req.query.search as string;
-    const patients = pacsStore.getPatients(search);
+    const patients = await pacsStore.getPatients(search);
     res.json(patients);
   });
 
-  app.get('/api/patients/:id', (req, res) => {
-    const patient = pacsStore.getPatientById(req.params.id);
+  app.get('/api/patients/:id', async (req, res) => {
+    const patient = await pacsStore.getPatientById(req.params.id);
     if (!patient) {
       return res.status(404).json({ error: 'Paciente no encontrado' });
     }
-    const studies = pacsStore.getStudies({ searchTerm: patient.documentNumber });
+    const studies = await pacsStore.getStudies({ searchTerm: patient.documentNumber });
     res.json({ ...patient, studies });
   });
 
-  app.post('/api/patients', (req, res) => {
-    const { firstName, lastName, documentNumber, birthDate, gender, phone, email, userId, userName, userRole } = req.body;
+  app.post('/api/patients', authenticate, async (req, res) => {
+    const { firstName, lastName, documentNumber, birthDate, gender, phone, email } = req.body;
     if (!firstName || !lastName || !documentNumber) {
       return res.status(400).json({ error: 'Nombre, Apellido y Documento son obligatorios' });
     }
 
-    const newPatient = pacsStore.createPatient(
+    const newPatient = await pacsStore.createPatient(
       { firstName, lastName, documentNumber, birthDate, gender, phone, email },
-      userId || 'usr-001',
-      userName || 'Usuario PACS',
-      userRole || 'Admin'
+      req.user!.userId,
+      req.user!.userName,
+      req.user!.userRole
     );
 
     res.status(201).json(newPatient);
   });
 
-  app.put('/api/patients/:id', (req, res) => {
-    const { userId, userName, userRole, ...updates } = req.body;
-    const updated = pacsStore.updatePatient(
+  app.put('/api/patients/:id', authenticate, async (req, res) => {
+    const { ...updates } = req.body;
+    const updated = await pacsStore.updatePatient(
       req.params.id,
       updates,
-      userId || 'usr-001',
-      userName || 'Usuario PACS',
-      userRole || 'Admin'
+      req.user!.userId,
+      req.user!.userName,
+      req.user!.userRole
     );
 
     if (!updated) {
@@ -152,13 +177,12 @@ async function startServer() {
     res.json(updated);
   });
 
-  app.delete('/api/patients/:id', (req, res) => {
-    const { userId, userName, userRole } = req.body;
-    const success = pacsStore.deletePatient(
+  app.delete('/api/patients/:id', authenticate, async (req, res) => {
+    const success = await pacsStore.deletePatient(
       req.params.id,
-      userId || 'usr-001',
-      userName || 'Usuario PACS',
-      userRole || 'Admin'
+      req.user!.userId,
+      req.user!.userName,
+      req.user!.userRole
     );
 
     if (!success) {
@@ -168,7 +192,7 @@ async function startServer() {
   });
 
   // Studies Endpoints
-  app.get('/api/studies', (req, res) => {
+  app.get('/api/studies', async (req, res) => {
     const filters = {
       searchTerm: req.query.searchTerm as string,
       modality: req.query.modality as string,
@@ -176,18 +200,17 @@ async function startServer() {
       dateTo: req.query.dateTo as string,
       status: req.query.status as string,
     };
-    const studies = pacsStore.getStudies(filters);
+    const studies = await pacsStore.getStudies(filters);
     res.json(studies);
   });
 
-  app.get('/api/studies/:id', (req, res) => {
-    const study = pacsStore.getStudyById(req.params.id);
+  app.get('/api/studies/:id', async (req, res) => {
+    const study = await pacsStore.getStudyById(req.params.id);
     if (!study) {
       return res.status(404).json({ error: 'Estudio no encontrado' });
     }
 
-    // Log study viewing
-    pacsStore.addAuditLog({
+    await pacsStore.addAuditLog({
       userId: (req.query.userId as string) || 'usr-002',
       userName: (req.query.userName as string) || 'Dra. Patricia Gómez',
       userRole: (req.query.userRole as any) || 'Radiologo',
@@ -199,14 +222,14 @@ async function startServer() {
     res.json(study);
   });
 
-  app.put('/api/studies/:id/status', (req, res) => {
-    const { status, userId, userName, userRole } = req.body;
-    const updated = pacsStore.updateStudyStatus(
+  app.put('/api/studies/:id/status', authenticate, async (req, res) => {
+    const { status } = req.body;
+    const updated = await pacsStore.updateStudyStatus(
       req.params.id,
       status,
-      userId || 'usr-002',
-      userName || 'Dra. Patricia Gómez',
-      userRole || 'Radiologo'
+      req.user!.userId,
+      req.user!.userName,
+      req.user!.userRole
     );
 
     if (!updated) {
@@ -216,22 +239,21 @@ async function startServer() {
   });
 
   // Orthanc DICOM REST API endpoints
-  app.get('/api/orthanc/status', (req, res) => {
-    res.json(pacsStore.getOrthancStatus());
+  app.get('/api/orthanc/status', async (req, res) => {
+    res.json(await pacsStore.getOrthancStatus());
   });
 
-  app.post('/api/orthanc/sync', (req, res) => {
-    const { userId, userName, userRole } = req.body;
-    const result = pacsStore.syncWithOrthanc(
-      userId || 'usr-001',
-      userName || 'Usuario PACS',
-      userRole || 'Admin'
+  app.post('/api/orthanc/sync', authenticate, async (req, res) => {
+    const result = await pacsStore.syncWithOrthanc(
+      req.user!.userId,
+      req.user!.userName,
+      req.user!.userRole
     );
     res.json(result);
   });
 
-  app.get('/api/orthanc/instances/:id/tags', (req, res) => {
-    const item = pacsStore.getInstanceById(req.params.id);
+  app.get('/api/orthanc/instances/:id/tags', async (req, res) => {
+    const item = await pacsStore.getInstanceById(req.params.id);
     if (!item) {
       return res.status(404).json({ error: 'Instancia DICOM no encontrada en Orthanc' });
     }
@@ -252,32 +274,54 @@ async function startServer() {
     });
   });
 
+  app.get('/api/orthanc/dicom/:instanceId', async (req, res) => {
+    const { instanceId } = req.params;
+    try {
+      const orthancUrl = `${process.env.ORTHANC_URL || 'http://localhost:8042'}`;
+      const token = Buffer.from('orthanc:orthanc').toString('base64');
+      const response = await fetch(`${orthancUrl}/instances/${instanceId}/file`, {
+        headers: { Authorization: `Basic ${token}` },
+      });
+      if (!response.ok) {
+        return res.status(404).json({ error: 'DICOM file not found in Orthanc' });
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      res.set({
+        'Content-Type': 'application/dicom',
+        'Content-Length': arrayBuffer.byteLength.toString(),
+      });
+      res.send(Buffer.from(arrayBuffer));
+    } catch {
+      res.status(502).json({ error: 'Error fetching DICOM from Orthanc' });
+    }
+  });
+
   // Audit Logs
-  app.get('/api/audit', (req, res) => {
+  app.get('/api/audit', async (req, res) => {
     const action = req.query.action as string;
     const search = req.query.search as string;
-    res.json(pacsStore.getAuditLogs(action, search));
+    res.json(await pacsStore.getAuditLogs(action, search));
   });
 
   // Config
-  app.get('/api/config', (req, res) => {
-    res.json(pacsStore.getPacsConfig());
+  app.get('/api/config', async (req, res) => {
+    res.json(await pacsStore.getPacsConfig());
   });
 
-  app.put('/api/config', (req, res) => {
-    const { userId, userName, userRole, ...configUpdates } = req.body;
-    const updated = pacsStore.updatePacsConfig(
+  app.put('/api/config', authenticate, async (req, res) => {
+    const configUpdates = req.body;
+    const updated = await pacsStore.updatePacsConfig(
       configUpdates,
-      userId || 'usr-001',
-      userName || 'Admin PACS',
-      userRole || 'Admin'
+      req.user!.userId,
+      req.user!.userName,
+      req.user!.userRole
     );
     res.json(updated);
   });
 
   // Users
-  app.get('/api/users', (req, res) => {
-    res.json(pacsStore.getUsers());
+  app.get('/api/users', async (req, res) => {
+    res.json(await pacsStore.getUsers());
   });
 
   // Vite Integration (Dev Mode)

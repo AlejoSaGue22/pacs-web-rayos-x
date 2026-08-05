@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 
 export interface MeasurementItem {
   id: string;
-  type: 'length' | 'angle' | 'roi';
+  type: 'length' | 'angle' | 'roi' | 'none' | 'windowing' | 'pan' | 'zoom';
   points: { x: number; y: number }[];
   value: string; // e.g. "42.5 mm", "38.2°", "Mean: 112.4 HU"
 }

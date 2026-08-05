@@ -1,0 +1,90 @@
+const ORTHANC_URL = process.env.ORTHANC_URL || 'http://localhost:8042';
+const ORTHANC_USER = 'orthanc';
+const ORTHANC_PASS = 'orthanc';
+
+function authHeaders(): Record<string, string> {
+  const token = Buffer.from(`${ORTHANC_USER}:${ORTHANC_PASS}`).toString('base64');
+  return { Authorization: `Basic ${token}` };
+}
+
+async function orthancGet(path: string) {
+  const res = await fetch(`${ORTHANC_URL}${path}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(`Orthanc GET ${path}: ${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+async function orthancPost(path: string, body?: any, contentType?: string) {
+  const headers: Record<string, string> = authHeaders();
+  if (contentType) headers['Content-Type'] = contentType;
+  else if (body && typeof body !== 'string') {
+    headers['Content-Type'] = 'application/json';
+    body = JSON.stringify(body);
+  }
+  const res = await fetch(`${ORTHANC_URL}${path}`, { method: 'POST', headers, body });
+  if (!res.ok) throw new Error(`Orthanc POST ${path}: ${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+export const OrthancClient = {
+  getSystem() {
+    return orthancGet('/system');
+  },
+
+  getPatients() {
+    return orthancGet('/patients');
+  },
+
+  getPatient(patientId: string) {
+    return orthancGet(`/patients/${patientId}`);
+  },
+
+  getStudies() {
+    return orthancGet('/studies');
+  },
+
+  getStudy(studyId: string) {
+    return orthancGet(`/studies/${studyId}`);
+  },
+
+  getSeries(seriesId: string) {
+    return orthancGet(`/series/${seriesId}`);
+  },
+
+  getInstance(instanceId: string) {
+    return orthancGet(`/instances/${instanceId}`);
+  },
+
+  getInstanceTags(instanceId: string) {
+    return orthancGet(`/instances/${instanceId}/simplified-tags`);
+  },
+
+  getInstanceFullTags(instanceId: string) {
+    return orthancGet(`/instances/${instanceId}/tags`);
+  },
+
+  getSeriesOfStudy(studyId: string) {
+    return orthancGet(`/studies/${studyId}/series`);
+  },
+
+  getInstancesOfSeries(seriesId: string) {
+    return orthancGet(`/series/${seriesId}/instances`);
+  },
+
+  getInstancesOfStudy(studyId: string) {
+    return orthancGet(`/studies/${studyId}/instances`);
+  },
+
+  async uploadDicomFile(buffer: Buffer) {
+    const headers: Record<string, string> = {
+      ...authHeaders(),
+      'Content-Type': 'application/octet-stream',
+    };
+    const res = await fetch(`${ORTHANC_URL}/instances`, {
+      method: 'POST',
+      headers,
+      body: new Uint8Array(buffer),
+    });
+    if (!res.ok) throw new Error(`Orthanc upload DICOM: ${res.status} ${res.statusText}`);
+    return res.json();
+  },
+};
