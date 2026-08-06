@@ -13,13 +13,37 @@ services:
     restart: unless-stopped
 
   orthanc:
-    image: jodogne/orthanc:latest
+    image: jodogne/orthanc-plugins:latest
     container_name: pacs-orthanc
     ports:
       - "4242:4242"
       - "8042:8042"
     volumes:
       - orthanc_data:/var/lib/orthanc/db
+      - ./orthanc.json:/etc/orthanc/orthanc.json:ro
+      - ./orthanc-webhook.lua:/etc/orthanc/orthanc-webhook.lua:ro
+    environment:
+      - BACKEND_WEBHOOK_URL=http://app:3000/api/orthanc/webhook
+      - BACKEND_WEBHOOK_SECRET=pacs-webhook-secret-2026
+    restart: unless-stopped
+
+  app:
+    build: .
+    container_name: pacs-app
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://pacs:pacs_secret@postgres:5432/pacs_rayos_x
+      JWT_SECRET: pacs-rayos-x-mindray-2026-secret-key
+      ORTHANC_URL: http://orthanc:8042
+      ORTHANC_USER: orthanc
+      ORTHANC_PASS: pacs_secure_2026
+      WEBHOOK_SECRET: pacs-webhook-secret-2026
+      PORT: 3000
+      NODE_ENV: production
+    depends_on:
+      - postgres
+      - orthanc
     restart: unless-stopped
 
 volumes:

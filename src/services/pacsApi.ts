@@ -214,4 +214,35 @@ export class PacsApiService {
     if (!res.ok) throw new Error('Error al obtener lista de usuarios');
     return res.json();
   }
+
+  static async createUser(data: { name: string; email: string; role: string; password: string; avatar?: string }): Promise<User> {
+    const res = await fetch(`${API_BASE}/users`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Error al crear usuario');
+    return result;
+  }
+
+  static async updateUser(id: string, data: { name?: string; email?: string; role?: string; password?: string; avatar?: string }): Promise<User> {
+    const res = await fetch(`${API_BASE}/users/${id}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Error al actualizar usuario');
+    return result;
+  }
+
+  static async deleteUser(id: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/users/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Error al eliminar usuario');
+  }
 }

@@ -36,3 +36,15 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
 export function generateToken(payload: AuthPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '8h' });
 }
+
+export function authorize(...allowedRoles: string[]) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Token de autenticación requerido' });
+    }
+    if (!allowedRoles.includes(req.user.userRole)) {
+      return res.status(403).json({ error: 'No tiene permisos para realizar esta acción' });
+    }
+    next();
+  };
+}

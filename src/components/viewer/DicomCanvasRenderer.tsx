@@ -29,6 +29,7 @@ interface DicomCanvasRendererProps {
   onWindowChange?: (wc: number, ww: number) => void;
   onPanChange?: (pan: { x: number; y: number }) => void;
   onZoomChange?: (zoom: number) => void;
+  isThumbnail?: boolean;
 }
 
 export const DicomCanvasRenderer: React.FC<DicomCanvasRendererProps> = ({
@@ -53,6 +54,7 @@ export const DicomCanvasRenderer: React.FC<DicomCanvasRendererProps> = ({
   onWindowChange,
   onPanChange,
   onZoomChange,
+  isThumbnail = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -267,37 +269,41 @@ export const DicomCanvasRenderer: React.FC<DicomCanvasRendererProps> = ({
         }`}
       />
 
-      {/* Top Left Overlay: Patient & Study Metadata */}
-      <div className="absolute top-3 left-4 text-emerald-400 font-mono text-xs leading-relaxed pointer-events-none drop-shadow-md bg-black/40 p-2 rounded border border-emerald-500/20">
-        <div className="font-bold text-sm text-emerald-300">{patientName}</div>
-        <div>ID: {patientId}</div>
-        <div>{seriesDescription} ({viewPosition})</div>
-        <div className="text-gray-300 text-[11px]">Mindray DigiEye 330 Series</div>
-      </div>
+      {!isThumbnail && (
+        <>
+          {/* Top Left Overlay: Patient & Study Metadata */}
+          <div className="absolute top-3 left-4 text-emerald-400 font-mono text-xs leading-relaxed pointer-events-none drop-shadow-md bg-black/40 p-2 rounded border border-emerald-500/20">
+            <div className="font-bold text-sm text-emerald-300">{patientName}</div>
+            <div>ID: {patientId}</div>
+            <div>{seriesDescription} ({viewPosition})</div>
+            <div className="text-gray-300 text-[11px]">Mindray DigiEye 330 Series</div>
+          </div>
 
-      {/* Top Right Overlay: Technical Exposure Values */}
-      <div className="absolute top-3 right-4 text-emerald-400 font-mono text-xs leading-relaxed text-right pointer-events-none drop-shadow-md bg-black/40 p-2 rounded border border-emerald-500/20">
-        <div>KVP: <span className="text-white font-semibold">{kvp}</span></div>
-        <div>mAs: <span className="text-white font-semibold">{mAs}</span></div>
-        <div>Zoom: <span className="text-amber-300 font-semibold">{(zoom * 100).toFixed(0)}%</span></div>
-        <div>Orient: <span className="text-cyan-300">{rotation}° {flipH ? 'H-Flip' : ''}</span></div>
-      </div>
+          {/* Top Right Overlay: Technical Exposure Values */}
+          <div className="absolute top-3 right-4 text-emerald-400 font-mono text-xs leading-relaxed text-right pointer-events-none drop-shadow-md bg-black/40 p-2 rounded border border-emerald-500/20">
+            <div>KVP: <span className="text-white font-semibold">{kvp}</span></div>
+            <div>mAs: <span className="text-white font-semibold">{mAs}</span></div>
+            <div>Zoom: <span className="text-amber-300 font-semibold">{(zoom * 100).toFixed(0)}%</span></div>
+            <div>Orient: <span className="text-cyan-300">{rotation}° {flipH ? 'H-Flip' : ''}</span></div>
+          </div>
 
-      {/* Bottom Left Overlay: Window Level & Width */}
-      <div className="absolute bottom-3 left-4 text-emerald-400 font-mono text-xs leading-relaxed pointer-events-none drop-shadow-md bg-black/40 p-2 rounded border border-emerald-500/20">
-        <div>WW: <span className="text-amber-300 font-semibold">{windowWidth}</span> | WL: <span className="text-amber-300 font-semibold">{windowCenter}</span></div>
-        <div>LUT: <span className={invert ? 'text-rose-400 font-bold' : 'text-emerald-300'}>{invert ? 'INVERTIDO' : 'NORMAL'}</span></div>
-      </div>
+          {/* Bottom Left Overlay: Window Level & Width */}
+          <div className="absolute bottom-3 left-4 text-emerald-400 font-mono text-xs leading-relaxed pointer-events-none drop-shadow-md bg-black/40 p-2 rounded border border-emerald-500/20">
+            <div>WW: <span className="text-amber-300 font-semibold">{windowWidth}</span> | WL: <span className="text-amber-300 font-semibold">{windowCenter}</span></div>
+            <div>LUT: <span className={invert ? 'text-rose-400 font-bold' : 'text-emerald-300'}>{invert ? 'INVERTIDO' : 'NORMAL'}</span></div>
+          </div>
 
-      {/* Bottom Right Overlay: Modality & Scale */}
-      <div className="absolute bottom-3 right-4 text-emerald-400 font-mono text-xs text-right pointer-events-none drop-shadow-md bg-black/40 p-2 rounded border border-emerald-500/20">
-        <div className="text-sm font-bold text-white">DX (Digital Radiography)</div>
-        <div className="text-gray-300 text-[11px]">Escala: 0.15 mm/px</div>
-        <div className="mt-1 flex items-center justify-end gap-1">
-          <div className="w-12 h-1 bg-emerald-400" />
-          <span className="text-[10px] text-emerald-300">8 mm</span>
-        </div>
-      </div>
+          {/* Bottom Right Overlay: Modality & Scale */}
+          <div className="absolute bottom-3 right-4 text-emerald-400 font-mono text-xs text-right pointer-events-none drop-shadow-md bg-black/40 p-2 rounded border border-emerald-500/20">
+            <div className="text-sm font-bold text-white">DX (Digital Radiography)</div>
+            <div className="text-gray-300 text-[11px]">Escala: 0.15 mm/px</div>
+            <div className="mt-1 flex items-center justify-end gap-1">
+              <div className="w-12 h-1 bg-emerald-400" />
+              <span className="text-[10px] text-emerald-300">8 mm</span>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

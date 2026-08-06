@@ -1,6 +1,6 @@
 const ORTHANC_URL = process.env.ORTHANC_URL || 'http://localhost:8042';
-const ORTHANC_USER = 'orthanc';
-const ORTHANC_PASS = 'orthanc';
+const ORTHANC_USER = process.env.ORTHANC_USER || 'orthanc';
+const ORTHANC_PASS = process.env.ORTHANC_PASS || 'orthanc';
 
 function authHeaders(): Record<string, string> {
   const token = Buffer.from(`${ORTHANC_USER}:${ORTHANC_PASS}`).toString('base64');

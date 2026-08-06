@@ -6,14 +6,32 @@ import { createServer as createViteServer } from 'vite';
 import bcrypt from 'bcryptjs';
 import { pacsStore } from './server/store.js';
 import { OrthancClient } from './server/orthancClient.js';
-import { authenticate, generateToken, AuthPayload } from './server/authMiddleware.js';
+import { authenticate, authorize, generateToken, AuthPayload } from './server/authMiddleware.js';
+import * as http from 'http';
+import { Server } from 'socket.io';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function validateEnv() {
+  const required = ['DATABASE_URL', 'JWT_SECRET', 'ORTHANC_URL'];
+  const missing = required.filter(key => !process.env[key]);
+  if (missing.length > 0) {
+    console.error(`[ERROR] Variables de entorno faltantes: ${missing.join(', ')}`);
+    console.error('Copia .env.example a .env y configura las variables necesarias.');
+    process.exit(1);
+  }
+}
+
 async function startServer() {
+  validateEnv();
+
   const app = express();
-  const PORT = 3000;
+  const httpServer = http.createServer(app);
+  const io = new Server(httpServer, {
+    cors: { origin: '*' }
+  });
+  const PORT = parseInt(process.env.PORT || '3000', 10);
 
   app.use(express.json());
 
@@ -177,7 +195,7 @@ async function startServer() {
     res.json(updated);
   });
 
-  app.delete('/api/patients/:id', authenticate, async (req, res) => {
+  app.delete('/api/patients/:id', authenticate, authorize('Admin'), async (req, res) => {
     const success = await pacsStore.deletePatient(
       req.params.id,
       req.user!.userId,
@@ -222,7 +240,7 @@ async function startServer() {
     res.json(study);
   });
 
-  app.put('/api/studies/:id/status', authenticate, async (req, res) => {
+  app.put('/api/studies/:id/status', authenticate, authorize('Admin', 'Radiologo'), async (req, res) => {
     const { status } = req.body;
     const updated = await pacsStore.updateStudyStatus(
       req.params.id,
@@ -243,7 +261,7 @@ async function startServer() {
     res.json(await pacsStore.getOrthancStatus());
   });
 
-  app.post('/api/orthanc/sync', authenticate, async (req, res) => {
+  app.post('/api/orthanc/sync', authenticate, authorize('Admin', 'Radiologo', 'Tecnico'), async (req, res) => {
     const result = await pacsStore.syncWithOrthanc(
       req.user!.userId,
       req.user!.userName,
@@ -296,6 +314,39 @@ async function startServer() {
     }
   });
 
+  app.post('/api/orthanc/webhook', async (req, res) => {
+    const secret = req.headers['x-webhook-secret'];
+    const expectedSecret = process.env.WEBHOOK_SECRET || 'pacs-webhook-secret-2026';
+
+    if (secret !== expectedSecret) {
+      return res.status(401).json({ error: 'Invalid webhook secret' });
+    }
+
+    const { event, orthancStudyId, accessionNumber, patientName, patientId } = req.body;
+
+    if (event !== 'new_study') {
+      return res.status(400).json({ error: 'Unknown event type' });
+    }
+
+    try {
+      await pacsStore.addAuditLog({
+        userId: 'system',
+        userName: 'Orthanc Webhook',
+        userRole: 'Admin',
+        action: 'ORTHANC_SYNC',
+        description: `Nuevo estudio recibido automáticamente: ${accessionNumber} - ${patientName}`,
+        ipAddress: req.ip || 'orthanc',
+        details: `Study ID: ${orthancStudyId}, Patient ID: ${patientId}`,
+      });
+
+      console.log(`[Webhook] Nuevo estudio recibido: ${accessionNumber} - ${patientName}`);
+      res.json({ success: true, message: 'Study notification received' });
+    } catch (err) {
+      console.error('[Webhook] Error processing notification:', err);
+      res.status(500).json({ error: 'Failed to process notification' });
+    }
+  });
+
   // Audit Logs
   app.get('/api/audit', async (req, res) => {
     const action = req.query.action as string;
@@ -308,7 +359,7 @@ async function startServer() {
     res.json(await pacsStore.getPacsConfig());
   });
 
-  app.put('/api/config', authenticate, async (req, res) => {
+  app.put('/api/config', authenticate, authorize('Admin'), async (req, res) => {
     const configUpdates = req.body;
     const updated = await pacsStore.updatePacsConfig(
       configUpdates,
@@ -322,6 +373,92 @@ async function startServer() {
   // Users
   app.get('/api/users', async (req, res) => {
     res.json(await pacsStore.getUsers());
+  });
+
+  app.post('/api/users', authenticate, authorize('Admin'), async (req, res) => {
+    const { name, email, role, password, avatar } = req.body;
+    if (!name || !email || !role || !password) {
+      return res.status(400).json({ error: 'Nombre, email, rol y contraseña son obligatorios' });
+    }
+
+    const existing = await pacsStore.getUserByEmail(email);
+    if (existing) {
+      return res.status(409).json({ error: 'Ya existe un usuario con ese email' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const user = await pacsStore.createUser({ name, email, role, passwordHash, avatar });
+
+    await pacsStore.addAuditLog({
+      userId: req.user!.userId,
+      userName: req.user!.userName,
+      userRole: req.user!.userRole,
+      action: 'PATIENT_CREATE',
+      description: `Creación de usuario: ${user.name} (${user.role})`,
+      ipAddress: req.ip || '127.0.0.1',
+    });
+
+    res.status(201).json(user);
+  });
+
+  app.put('/api/users/:id', authenticate, authorize('Admin'), async (req, res) => {
+    const { name, email, role, password, avatar } = req.body;
+
+    const existing = await pacsStore.getUserById(req.params.id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    if (email && email !== existing.email) {
+      const emailTaken = await pacsStore.getUserByEmail(email);
+      if (emailTaken) {
+        return res.status(409).json({ error: 'Ya existe un usuario con ese email' });
+      }
+    }
+
+    const updates: any = {};
+    if (name) updates.name = name;
+    if (email) updates.email = email;
+    if (role) updates.role = role;
+    if (avatar !== undefined) updates.avatar = avatar;
+    if (password) updates.passwordHash = await bcrypt.hash(password, 10);
+
+    const user = await pacsStore.updateUser(req.params.id, updates);
+
+    await pacsStore.addAuditLog({
+      userId: req.user!.userId,
+      userName: req.user!.userName,
+      userRole: req.user!.userRole,
+      action: 'PATIENT_UPDATE',
+      description: `Actualización de usuario: ${user.name} (${user.role})`,
+      ipAddress: req.ip || '127.0.0.1',
+    });
+
+    res.json(user);
+  });
+
+  app.delete('/api/users/:id', authenticate, authorize('Admin'), async (req, res) => {
+    const existing = await pacsStore.getUserById(req.params.id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    if (existing.id === req.user!.userId) {
+      return res.status(400).json({ error: 'No puede eliminar su propio usuario' });
+    }
+
+    await pacsStore.deleteUser(req.params.id);
+
+    await pacsStore.addAuditLog({
+      userId: req.user!.userId,
+      userName: req.user!.userName,
+      userRole: req.user!.userRole,
+      action: 'PATIENT_DELETE',
+      description: `Eliminación de usuario: ${existing.name} (${existing.role})`,
+      ipAddress: req.ip || '127.0.0.1',
+    });
+
+    res.json({ message: 'Usuario eliminado exitosamente' });
   });
 
   // Vite Integration (Dev Mode)
@@ -339,7 +476,24 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  // Polling for Orthanc Status via WebSockets
+  let lastOrthancOnline: boolean | null = null;
+  setInterval(async () => {
+    try {
+      const status = await pacsStore.getOrthancStatus();
+      if (status.online !== lastOrthancOnline) {
+        lastOrthancOnline = status.online;
+        io.emit('orthanc_status_changed', status);
+      }
+    } catch (e) {
+      if (lastOrthancOnline !== false) {
+        lastOrthancOnline = false;
+        io.emit('orthanc_status_changed', { online: false });
+      }
+    }
+  }, 5000);
+
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`[Mini PACS Web Server] Running at http://0.0.0.0:${PORT}`);
   });
 }

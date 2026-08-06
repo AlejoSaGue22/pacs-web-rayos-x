@@ -470,6 +470,45 @@ class PacsStore {
   async getUsers() {
     return prisma.user.findMany();
   }
+
+  async getUserById(id: string) {
+    return prisma.user.findUnique({ where: { id } });
+  }
+
+  async getUserByEmail(email: string) {
+    return prisma.user.findUnique({ where: { email } });
+  }
+
+  async createUser(data: { name: string; email: string; role: string; passwordHash: string; avatar?: string }) {
+    const user = await prisma.user.create({
+      data: {
+        id: `usr-${Date.now()}`,
+        name: data.name,
+        email: data.email,
+        role: data.role,
+        passwordHash: data.passwordHash,
+        avatar: data.avatar || null,
+        lastLogin: null,
+      },
+    });
+    return user;
+  }
+
+  async updateUser(id: string, data: Partial<{ name: string; email: string; role: string; passwordHash: string; avatar: string }>) {
+    const user = await prisma.user.update({
+      where: { id },
+      data,
+    });
+    return user;
+  }
+
+  async deleteUser(id: string) {
+    await prisma.auditLog.updateMany({
+      where: { userId: id },
+      data: { userId: null },
+    });
+    await prisma.user.delete({ where: { id } });
+  }
 }
 
 export const pacsStore = new PacsStore();

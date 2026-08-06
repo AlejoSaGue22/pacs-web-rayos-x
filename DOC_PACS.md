@@ -94,3 +94,246 @@ El trabajo actual es un excelente punto de partida. Permite a los usuarios (méd
 2. **Conectar Express con la API REST de Orthanc** (`http://localhost:8042/studies`) para que el frontend liste estudios reales subidos al servidor.
 3. **Configurar el DigiEye 330** en un entorno de pruebas apuntando a tu máquina local (puerto 4242 de Orthanc).
 4. **Integrar Cornerstone.js** en el modal de visor (Viewer Modal) para poder dibujar la radiografía que llega del equipo de Rayos X.
+
+---
+
+## 9. Configuración DICOM del Mindray DigiEye 330
+
+### Diagrama de Red
+
+```
+┌─────────────────────┐         ┌─────────────────────┐         ┌─────────────────────┐
+│  Mindray DigiEye    │  DICOM  │   Servidor PACS     │  REST   │   Mini PACS Web     │
+│  330 Series         │ C-STORE │   (Orthanc)         │  API    │   (Express + React) │
+│                     │────────▶│                     │◀────────│                     │
+│  IP: 192.168.1.105  │         │  IP: 192.168.1.10   │         │  IP: 192.168.1.10   │
+│  AET: MINDRAY_DROC  │         │  AET: ORTHANC_PACS  │         │  Puerto: 3000       │
+│  Puerto: 104        │         │  Puerto DICOM: 4242 │         │                     │
+│                     │         │  Puerto HTTP: 8042  │         │                     │
+└─────────────────────┘         └─────────────────────┘         └─────────────────────┘
+```
+
+### Parámetros de Configuración en la Consola DROC
+
+En la consola del DigiEye 330, se debe configurar el destino PACS con los siguientes parámetros:
+
+| Parámetro | Valor | Descripción |
+|-----------|-------|-------------|
+| **AETitle Destino** | `ORTHANC_PACS` | Nombre del servidor PACS en la red DICOM |
+| **IP Destino** | `192.168.1.10` | Dirección IP del servidor donde corre Orthanc |
+| **Puerto DICOM** | `4242` | Puerto DICOM de Orthanc (por defecto) |
+
+### Pasos para Configurar el DigiEye 330
+
+1. **Acceder a la consola DROC** del equipo Mindray DigiEye 330
+2. **Navegar a Configuración de Red** → Configuración DICOM
+3. **Agregar Nuevo Destino PACS**:
+   - Nombre: `Servidor PACS Local`
+   - AETitle: `ORTHANC_PACS`
+   - IP: `192.168.1.10` (o la IP de tu servidor)
+   - Puerto: `4242`
+4. **Probar Conexión** usando C-ECHO para verificar conectividad
+5. **Guardar Configuración**
+
+### Flujo de Trabajo Real
+
+1. El técnico realiza la captura de Rayos X en el DigiEye 330
+2. En la consola DROC, selecciona el estudio y elige "Enviar a PACS"
+3. El equipo envía el estudio mediante **DICOM C-STORE** al servidor Orthanc
+4. Orthanc recibe, almacena e indexa el estudio automáticamente
+5. El Mini PACS Web detecta el nuevo estudio (sync manual o automático)
+6. El radiólogo abre el estudio en el visor OHIF/Cornerstone.js
+7. El radiólogo escribe el informe y cambia el estado a "Informado"
+
+### Verificación de Conectividad (C-ECHO)
+
+Para verificar que el DigiEye puede comunicarse con Orthanc, se puede usar el endpoint REST de Orthanc:
+
+```bash
+# Desde el servidor, verificar que Orthanc está escuchando
+curl http://localhost:8042/system
+
+# Verificar modalidades configuradas
+curl http://localhost:8042/modalities?expand
+```
+
+### Troubleshooting
+
+| Problema | Solución |
+|----------|----------|
+| C-ECHO falla | Verificar que el firewall permite el puerto 4242 |
+| AETitle no reconocido | Verificar que `ORTHANC_PACS` coincide exactamente (mayúsculas) |
+| Timeout de conexión | Verificar que ambos equipos están en la misma red/subred |
+| Estudio no aparece en PACS Web | Ejecutar sincronización manual desde el botón "Sync DICOM" |
+
+---
+
+## 10. Configuración de Orthanc Personalizada
+
+### Principios SOLID Aplicados
+
+La configuración de Orthanc sigue los principios SOLID para garantizar mantenibilidad y escalabilidad:
+
+| Principio | Aplicación |
+|-----------|------------|
+| **Single Responsibility** | Cada archivo tiene una responsabilidad única: `orthanc.json` (configuración DICOM), `orthanc-webhook.lua` (notificaciones), `.env` (variables de entorno) |
+| **Open/Closed** | La configuración es extensible vía variables de entorno sin modificar el código fuente |
+| **Dependency Inversion** | El backend depende de abstracciones (variables de entorno) no de implementaciones concretas (hardcoded values) |
+| **Interface Segregation** | Configuraciones separadas por concern: DICOM, HTTP, autenticación, webhooks |
+
+### Archivos de Configuración
+
+#### 1. `orthanc.json` - Configuración Principal del Servidor DICOM
+
+```json
+{
+  "DicomAet": "ORTHANC_PACS",
+  "DicomPort": 4242,
+  "HttpPort": 8042,
+  "RegisteredUsers": {
+    "orthanc": "pacs_secure_2026"
+  },
+  "DicomModalities": {
+    "mindray_digieye": {
+      "AET": "MINDRAY_DROC",
+      "Host": "192.168.1.105",
+      "Port": 104
+    }
+  }
+}
+```
+
+**Propósito:**
+- Define el AETitle del servidor PACS en la red DICOM
+- Configura autenticación HTTP para la API REST
+- Declara modalidades conocidas (DigiEye 330, Workstations)
+- Establece políticas de almacenamiento y seguridad
+
+#### 2. `orthanc-webhook.lua` - Script Lua para Detección Automática
+
+```lua
+function OnStoredInstance(instanceId, tags, metadata, origin)
+  -- Notifica al backend cuando llega un nuevo estudio vía C-STORE
+  HttpPost(BACKEND_WEBHOOK_URL, jsonPayload, headers)
+end
+```
+
+**Propósito:**
+- Detecta automáticamente cuando el DigiEye 330 envía un estudio
+- Envía webhook HTTP POST al backend (`/api/orthanc/webhook`)
+- Elimina la necesidad de sincronización manual
+- Solo notifica en la primera instancia de cada estudio (evita duplicados)
+
+#### 3. Variables de Entorno (`.env`)
+
+```bash
+ORTHANC_URL=http://localhost:8042
+ORTHANC_USER=orthanc
+ORTHANC_PASS=pacs_secure_2026
+WEBHOOK_SECRET=pacs-webhook-secret-2026
+```
+
+**Propósito:**
+- Inyección de configuración sin hardcoding
+- Permite diferentes configuraciones por entorno (dev/staging/prod)
+- Separa secretos del código fuente
+
+### Flujo de Detección Automática de Estudios
+
+```
+┌─────────────────┐
+│  DigiEye 330    │
+│  (C-STORE)      │
+└────────┬────────┘
+         │ DICOM
+         ▼
+┌─────────────────┐
+│    Orthanc      │
+│  (Puerto 4242)  │
+└────────┬────────┘
+         │ Lua Script
+         │ OnStoredInstance()
+         ▼
+┌─────────────────┐
+│  Webhook POST   │
+│  /api/orthanc/  │
+│    webhook      │
+└────────┬────────┘
+         │ HTTP
+         ▼
+┌─────────────────┐
+│  Express App    │
+│  (Audit Log)    │
+└─────────────────┘
+```
+
+### Seguridad Implementada
+
+| Capa | Mecanismo | Propósito |
+|------|-----------|-----------|
+| **HTTP Auth** | Basic Auth (`orthanc:pacs_secure_2026`) | Protege API REST de Orthanc |
+| **Webhook Secret** | Header `X-Webhook-Secret` | Valida que el webhook viene de Orthanc |
+| **DicomCheckModalityHost** | Configurado en `orthanc.json` | Solo acepta C-STORE de modalidades conocidas |
+| **Variables de Entorno** | `.env` file | Secretos fuera del código fuente |
+
+### Despliegue con Docker
+
+```yaml
+orthanc:
+  image: jodogne/orthanc-plugins:latest
+  volumes:
+    - ./orthanc.json:/etc/orthanc/orthanc.json:ro
+    - ./orthanc-webhook.lua:/etc/orthanc/orthanc-webhook.lua:ro
+  environment:
+    - BACKEND_WEBHOOK_URL=http://app:3000/api/orthanc/webhook
+    - BACKEND_WEBHOOK_SECRET=pacs-webhook-secret-2026
+```
+
+### Verificación de Configuración
+
+```bash
+# Verificar que Orthanc está corriendo con la configuración personalizada
+curl -u orthanc:pacs_secure_2026 http://localhost:8042/system
+
+# Verificar modalidades configuradas
+curl -u orthanc:pacs_secure_2026 http://localhost:8042/modalities?expand
+
+# Verificar que el script Lua está cargado
+curl -u orthanc:pacs_secure_2026 http://localhost:8042/lua/execute -d 'print("Lua OK")'
+```
+
+### Troubleshooting
+
+| Problema | Solución |
+|----------|----------|
+| Webhook no se dispara | Verificar que `LuaScripts` está configurado en `orthanc.json` |
+| Error de autenticación | Verificar que `ORTHANC_USER` y `ORTHANC_PASS` coinciden con `RegisteredUsers` |
+| Modalidad no reconocida | Agregar el AETitle del equipo en `DicomModalities` de `orthanc.json` |
+| Webhook falla con 401 | Verificar que `WEBHOOK_SECRET` coincide en Orthanc y Express |
+
+---
+
+## 11. Estado Actual del Desarrollo
+
+### Funcionalidades Implementadas
+
+| Módulo | Estado | Descripción |
+|--------|--------|-------------|
+| **Base de Datos** | ✅ Completo | PostgreSQL + Prisma ORM con 8 modelos |
+| **Autenticación** | ✅ Completo | JWT + bcrypt, login con email/password |
+| **Integración Orthanc** | ✅ Completo | REST API client, sync de estudios, proxy DICOM |
+| **Dockerización** | ✅ Completo | docker-compose con PostgreSQL + Orthanc + App |
+| **Visor DICOM** | ✅ Completo | Cornerstone.js v5 con herramientas profesionales |
+| **CRUD Pacientes** | ✅ Completo | Crear, editar, eliminar (lógico) |
+| **Gestión Estudios** | ✅ Completo | Listar, filtrar, cambiar estado |
+| **Auditoría** | ✅ Completo | Log de acciones en BD |
+| **Configuración PACS** | ✅ Completo | AETitles, puertos, parámetros |
+| **Gestión Usuarios** | ✅ Completo | CRUD completo con roles RBAC |
+
+### Próximas Funcionalidades (Roadmap)
+
+1. **Informe Radiológico** - Editor de diagnósticos con exportación PDF
+2. **Upload DICOM desde navegador** - Drag-and-drop de archivos .dcm
+3. **Detección automática de estudios** - Webhook/polling a `/changes` de Orthanc
+4. **Notificaciones en tiempo real** - WebSocket para alertas de nuevos estudios
+5. **Exportación de estudios** - ZIP con DICOM + PDF del informe

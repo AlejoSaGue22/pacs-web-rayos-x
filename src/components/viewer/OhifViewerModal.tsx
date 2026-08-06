@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   X,
-  Maximize2,
-  Minimize2,
   RotateCw,
   FlipHorizontal,
   FlipVertical,
@@ -20,60 +18,59 @@ import {
   Columns,
   Grid2x2,
   Square as SquareIcon,
-  Sliders,
   ChevronLeft,
   ChevronRight,
-  Eye,
-  Check,
 } from 'lucide-react';
 import { DicomStudy, DicomSeries, DicomInstance } from '../../types/pacs';
-import { DicomCanvasRenderer, MeasurementItem } from './DicomCanvasRenderer';
+import { DicomCanvasRenderer } from './DicomCanvasRenderer';
 import { CornerstoneViewport } from './CornerstoneViewport';
+import {
+  setToolActive,
+  applyWindowLevelPreset,
+  resetViewport,
+  invertViewport,
+  TOOL_NAMES,
+} from './cornerstoneInit';
 
 interface OhifViewerModalProps {
   study: DicomStudy;
   onClose: () => void;
 }
 
+type ToolType = 'windowing' | 'pan' | 'zoom' | 'length' | 'angle' | 'roi';
+
+const TOOL_MAP: Record<ToolType, string> = {
+  windowing: TOOL_NAMES.WindowLevel,
+  pan: TOOL_NAMES.Pan,
+  zoom: TOOL_NAMES.Zoom,
+  length: TOOL_NAMES.Length,
+  angle: TOOL_NAMES.Angle,
+  roi: TOOL_NAMES.RectangleROI,
+};
+
 export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose }) => {
   const [activeSeriesIndex, setActiveSeriesIndex] = useState(0);
   const [activeInstanceIndex, setActiveInstanceIndex] = useState(0);
   const [layoutMode, setLayoutMode] = useState<'1x1' | '1x2' | '2x2'>('1x1');
 
-  // Viewport Settings
-  const [windowCenter, setWindowCenter] = useState(2048);
-  const [windowWidth, setWindowWidth] = useState(4096);
   const [invert, setInvert] = useState(false);
-  const [rotation, setRotation] = useState(0);
-  const [flipH, setFlipH] = useState(false);
-  const [flipV, setFlipV] = useState(false);
-  const [zoom, setZoom] = useState(1.0);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-
-  // Active Interactive Tool
-  const [activeTool, setActiveTool] = useState<'windowing' | 'pan' | 'zoom' | 'length' | 'angle' | 'roi' | 'none'>('windowing');
-
-  // Measurements
-  const [measurements, setMeasurements] = useState<MeasurementItem[]>([]);
-
-  // Cine Playback
+  const [activeTool, setActiveTool] = useState<ToolType>('windowing');
   const [isPlayingCine, setIsPlayingCine] = useState(false);
-
-  // DICOM Tags Drawer
   const [showTagsDrawer, setShowTagsDrawer] = useState(false);
 
   const currentSeries: DicomSeries | undefined = study.series[activeSeriesIndex];
   const currentInstance: DicomInstance | undefined = currentSeries?.instances[activeInstanceIndex];
 
-  // Initialize preset windowing on instance change
-  useEffect(() => {
-    if (currentInstance) {
-      setWindowCenter(currentInstance.windowCenter || 2048);
-      setWindowWidth(currentInstance.windowWidth || 4096);
-    }
-  }, [currentInstance]);
+  const primaryViewportId = `viewport-primary-${study.id}`;
 
-  // Cine Loop Interval
+  useEffect(() => {
+    setToolActive(TOOL_MAP[activeTool]);
+  }, [activeTool]);
+
+  useEffect(() => {
+    invertViewport(primaryViewportId, invert);
+  }, [invert, primaryViewportId]);
+
   useEffect(() => {
     if (!isPlayingCine || !currentSeries) return;
     const interval = setInterval(() => {
@@ -82,24 +79,13 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
     return () => clearInterval(interval);
   }, [isPlayingCine, currentSeries]);
 
-  // Apply Windowing Presets
   const applyPreset = (wc: number, ww: number) => {
-    setWindowCenter(wc);
-    setWindowWidth(ww);
+    applyWindowLevelPreset(primaryViewportId, wc, ww);
   };
 
   const handleResetViewport = () => {
-    if (currentInstance) {
-      setWindowCenter(currentInstance.windowCenter || 2048);
-      setWindowWidth(currentInstance.windowWidth || 4096);
-    }
+    resetViewport(primaryViewportId);
     setInvert(false);
-    setRotation(0);
-    setFlipH(false);
-    setFlipV(false);
-    setZoom(1.0);
-    setPan({ x: 0, y: 0 });
-    setMeasurements([]);
   };
 
   const handleCaptureSnapshot = () => {
@@ -123,7 +109,6 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
           </span>
         </div>
 
-        {/* Right Header Controls */}
         <div className="flex items-center gap-3">
           <button
             onClick={() => setShowTagsDrawer(!showTagsDrawer)}
@@ -244,31 +229,6 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
         {/* Transforms & Cine */}
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setRotation(r => (r + 90) % 360)}
-            title="Rotar 90°"
-            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700"
-          >
-            <RotateCw className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setFlipH(!flipH)}
-            title="Reflejo Horizontal"
-            className={`p-1.5 rounded border ${
-              flipH ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' : 'bg-slate-800 text-slate-300 border-slate-700'
-            }`}
-          >
-            <FlipHorizontal className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setFlipV(!flipV)}
-            title="Reflejo Vertical"
-            className={`p-1.5 rounded border ${
-              flipV ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' : 'bg-slate-800 text-slate-300 border-slate-700'
-            }`}
-          >
-            <FlipVertical className="w-4 h-4" />
-          </button>
-          <button
             onClick={handleResetViewport}
             title="Restablecer Vista"
             className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700"
@@ -278,7 +238,6 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
 
           <div className="w-px h-5 bg-slate-800 mx-1" />
 
-          {/* Cine Control */}
           <button
             onClick={() => setIsPlayingCine(!isPlayingCine)}
             className={`px-2.5 py-1.5 rounded flex items-center gap-1 font-semibold ${
@@ -352,7 +311,6 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
                 </span>
               </div>
 
-              {/* Series Thumbnail Preview */}
               <div className="w-full h-28 bg-black rounded border border-slate-800 relative overflow-hidden flex items-center justify-center">
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent z-10" />
                 <DicomCanvasRenderer
@@ -368,6 +326,7 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
                   pan={{ x: 0, y: 0 }}
                   activeTool="none"
                   measurements={[]}
+                  isThumbnail={true}
                 />
                 <div className="absolute bottom-1 right-2 z-20 text-[10px] text-amber-400 font-mono font-bold">
                   {s.numberOfInstances} Img
@@ -376,7 +335,6 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
             </div>
           ))}
 
-          {/* Instance Navigator inside active series */}
           {currentSeries && currentSeries.instances.length > 1 && (
             <div className="mt-4 pt-4 border-t border-slate-800">
               <div className="text-xs font-semibold text-slate-400 mb-2">
@@ -410,13 +368,9 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
             <div className="w-full h-full rounded-lg border border-slate-800 overflow-hidden relative">
               <CornerstoneViewport
                 instanceId={currentInstance.id}
+                viewportId={primaryViewportId}
                 className="w-full h-full"
               />
-              {measurements.map(m => (
-                <div key={m.id} className="absolute text-amber-400 text-xs font-mono" style={{ left: m.points[0]?.x || 0, top: (m.points[0]?.y || 0) - 20, pointerEvents: 'none' }}>
-                  {m.value}
-                </div>
-              ))}
             </div>
           )}
 
@@ -429,6 +383,7 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
                     {inst ? (
                       <CornerstoneViewport
                         instanceId={inst.id}
+                        viewportId={`viewport-1x2-${idx}-${study.id}`}
                         className="w-full h-full"
                       />
                     ) : (
@@ -437,8 +392,11 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
                         viewPosition="AP"
                         windowCenter={2048} windowWidth={4096}
                         invert={false} rotation={0} flipH={false} flipV={false}
-                        zoom={zoom} pan={pan} activeTool={activeTool}
-                        measurements={idx === 0 ? measurements : []}
+                        zoom={1} pan={{ x: 0, y: 0 }} activeTool="none"
+                        measurements={[]}
+                        patientName={study.patientName}
+                        patientId={study.patientDocument}
+                        seriesDescription={s.seriesDescription}
                       />
                     )}
                   </div>
@@ -457,6 +415,7 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
                     {inst ? (
                       <CornerstoneViewport
                         instanceId={inst.id}
+                        viewportId={`viewport-2x2-${idx}-${study.id}`}
                         className="w-full h-full"
                       />
                     ) : (
@@ -465,8 +424,11 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
                         viewPosition="AP"
                         windowCenter={2048} windowWidth={4096}
                         invert={false} rotation={0} flipH={false} flipV={false}
-                        zoom={zoom} pan={pan} activeTool={activeTool}
-                        measurements={idx === 0 ? measurements : []}
+                        zoom={1} pan={{ x: 0, y: 0 }} activeTool="none"
+                        measurements={[]}
+                        patientName={study.patientName}
+                        patientId={study.patientDocument}
+                        seriesDescription={s?.seriesDescription || 'Proyección Radiográfica'}
                       />
                     )}
                   </div>

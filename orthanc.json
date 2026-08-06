@@ -1,0 +1,98 @@
+{
+  "Name": "MiniPACS-Orthanc",
+  "DicomAet": "ORTHANC_PACS",
+  "DicomPort": 4242,
+  "HttpPort": 8042,
+  "HttpServerEnabled": true,
+  "DicomServerEnabled": true,
+
+  "RegisteredUsers": {
+    "orthanc": "pacs_secure_2026"
+  },
+
+  "DicomModalities": {
+    "mindray_digieye": {
+      "AET": "MINDRAY_DROC",
+      "Host": "192.168.1.105",
+      "Port": 104,
+      "AllowEcho": true,
+      "AllowFind": true,
+      "AllowMove": true,
+      "AllowStore": true,
+      "AllowGet": false,
+      "UseDicomTls": false
+    },
+    "workstation_rad1": {
+      "AET": "RAD_WORKSTATION_1",
+      "Host": "192.168.1.42",
+      "Port": 11112,
+      "AllowEcho": true,
+      "AllowFind": true,
+      "AllowMove": true,
+      "AllowStore": false,
+      "AllowGet": false,
+      "UseDicomTls": false
+    }
+  },
+
+  "OrthancPeers": {},
+
+  "StorageDirectory": "/var/lib/orthanc/db",
+  "IndexDirectory": "/var/lib/orthanc/db",
+  "StorageCompression": false,
+  "MaximumStorageSize": 0,
+  "MaximumPatientCount": 0,
+
+  "LuaScripts": ["/etc/orthanc/orthanc-webhook.lua"],
+
+  "Plugins": ["/usr/share/orthanc/plugins"],
+
+  "ConcurrentJobs": 4,
+  "JobsHistorySize": 100,
+
+  "SaveJobs": true,
+  "OverwriteInstances": false,
+  "DicomAlwaysAllowEcho": true,
+  "DicomAlwaysAllowStore": true,
+  "DicomAlwaysAllowFind": true,
+  "DicomAlwaysAllowFindWorklist": false,
+  "DicomAlwaysAllowGet": true,
+  "DicomAlwaysAllowMove": true,
+  "DicomCheckModalityHost": false,
+
+  "DicomScuTimeout": 60,
+  "HttpTimeout": 60,
+
+  "RemoteAccessAllowed": true,
+  "SslEnabled": false,
+  "SslCertificate": "",
+
+  "StableAge": 60,
+  "Strict": true,
+
+  "LogExportedResources": false,
+  "KeepAlive": true,
+  "TcpNoDelay": true,
+
+  "StoreMD5ForAttachments": false,
+
+  "LimitFindResults": 0,
+  "LimitFindInstances": 0,
+
+  "TranscodeDicomProtocol": true,
+
+  "BuiltinDecoderTranscoderOrder": "After",
+
+  "IngestTranscoding": "1.2.840.10008.1.2.1",
+  "IngestTranscodingOfUncompressed": true,
+  "IngestTranscodingOfCompressed": true,
+
+  "DicomLossyTranscodingQuality": 90,
+
+  "SyncStorageRegion": true,
+
+  "MallocArenaMax": 5,
+
+  "DeidentifyLogs": true,
+  "DeidentifyLogsDicomVersion": "2021b"
+}

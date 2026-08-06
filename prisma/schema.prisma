@@ -99,7 +99,7 @@ model Instance {
 model AuditLog {
   id          String  @id
   timestamp   String
-  userId      String
+  userId      String?
   userName    String
   userRole    String
   action      String

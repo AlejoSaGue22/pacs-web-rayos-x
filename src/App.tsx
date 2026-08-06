@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { io } from 'socket.io-client';
 import { Header } from './components/common/Header';
 import { Sidebar, ActiveTab } from './components/common/Sidebar';
 import { DashboardView } from './components/dashboard/DashboardView';
@@ -54,6 +55,7 @@ export default function App() {
 
   // Load Initial Data
   const loadData = async () => {
+    if (!PacsApiService.isAuthenticated()) return;
     try {
       const [stats, pats, stds, logs, orthanc, config, users] = await Promise.all([
         PacsApiService.getDashboardStats(),
@@ -78,8 +80,25 @@ export default function App() {
   };
 
   useEffect(() => {
-    loadData();
+    if (!PacsApiService.isAuthenticated()) {
+      setShowLoginModal(true);
+    } else {
+      loadData();
+    }
   }, [studyFilters]);
+
+  // WebSockets for live Orthanc status updates
+  useEffect(() => {
+    const socket = io();
+    
+    socket.on('orthanc_status_changed', (newStatus: Partial<OrthancStatus>) => {
+      setOrthancStatus(prev => prev ? { ...prev, ...newStatus } : newStatus as OrthancStatus);
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
 
   // Handle Quick Search input
   const handleQuickSearch = (term: string) => {
@@ -135,9 +154,26 @@ export default function App() {
     }
   };
 
+  // Users CRUD
+  const handleCreateUser = async (data: { name: string; email: string; role: string; password: string }) => {
+    await PacsApiService.createUser(data);
+    loadData();
+  };
+
+  const handleUpdateUser = async (id: string, data: { name?: string; email?: string; role?: string; password?: string }) => {
+    await PacsApiService.updateUser(id, data);
+    loadData();
+  };
+
+  const handleDeleteUser = async (id: string) => {
+    await PacsApiService.deleteUser(id);
+    loadData();
+  };
+
   const handleLogin = async (role: UserRole) => {
     const user = PacsApiService.getCurrentUser();
     setCurrentUser(user);
+    setShowLoginModal(false);
     loadData();
   };
 
@@ -217,6 +253,9 @@ export default function App() {
               users={usersList}
               activeUser={currentUser}
               onSwitchRole={handleSwitchRole}
+              onCreateUser={handleCreateUser}
+              onUpdateUser={handleUpdateUser}
+              onDeleteUser={handleDeleteUser}
             />
           )}
 
