@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
+import { CheckCircle } from 'lucide-react';
 import { Header } from './components/common/Header';
 import { Sidebar, ActiveTab } from './components/common/Sidebar';
 import { DashboardView } from './components/dashboard/DashboardView';
@@ -31,6 +32,7 @@ export default function App() {
 
   // Data States
   const [dashboardStats, setDashboardStats] = useState<any>(null);
+  const [weeklyStats, setWeeklyStats] = useState<{ days: { day: string; estudios: number }[] } | null>(null);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [studies, setStudies] = useState<DicomStudy[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
@@ -57,8 +59,9 @@ export default function App() {
   const loadData = async () => {
     if (!PacsApiService.isAuthenticated()) return;
     try {
-      const [stats, pats, stds, logs, orthanc, config, users] = await Promise.all([
+      const [stats, weekly, pats, stds, logs, orthanc, config, users] = await Promise.all([
         PacsApiService.getDashboardStats(),
+        PacsApiService.getWeeklyStats(),
         PacsApiService.getPatients(),
         PacsApiService.getStudies(studyFilters),
         PacsApiService.getAuditLogs(),
@@ -68,6 +71,7 @@ export default function App() {
       ]);
 
       setDashboardStats(stats);
+      setWeeklyStats(weekly);
       setPatients(pats);
       setStudies(stds);
       setAuditLogs(logs);
@@ -131,10 +135,23 @@ export default function App() {
     loadData();
   };
 
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+
   // Orthanc Actions
   const handleSyncOrthanc = async () => {
-    await PacsApiService.syncOrthanc();
-    loadData();
+    setIsSyncing(true);
+    setToastMessage("Iniciando sincronización manual...");
+    try {
+      await PacsApiService.syncOrthanc();
+      await loadData();
+      setToastMessage("Sincronización completada exitosamente.");
+    } catch (error) {
+      setToastMessage("Error al sincronizar con Orthanc.");
+    } finally {
+      setIsSyncing(false);
+      setTimeout(() => setToastMessage(null), 3000);
+    }
   };
 
   // Config Actions
@@ -178,11 +195,12 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F1F5F9] text-slate-800 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
+    <div className="h-screen bg-[#F1F5F9] text-slate-800 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
       {/* Top Application Header */}
       <Header
         currentUser={currentUser}
         orthancOnline={orthancStatus?.online ?? true}
+        pacsConfig={pacsConfig}
         onSyncOrthanc={handleSyncOrthanc}
         onOpenLoginModal={() => setShowLoginModal(true)}
         onQuickSearch={handleQuickSearch}
@@ -196,6 +214,8 @@ export default function App() {
           activeTab={activeTab}
           onTabChange={tab => setActiveTab(tab)}
           userRole={currentUser.role}
+          orthancOnline={orthancStatus?.online ?? false}
+          remoteAETitle={pacsConfig?.remoteAETitle || ''}
         />
 
         {/* Primary View Content Area */}
@@ -203,6 +223,9 @@ export default function App() {
           {activeTab === 'dashboard' && dashboardStats && (
             <DashboardView
               stats={dashboardStats}
+              weeklyStats={weeklyStats?.days || null}
+              pacsConfig={pacsConfig}
+              orthancStatus={orthancStatus}
               onOpenStudyViewer={study => setStudyForViewer(study)}
               onNavigateTab={tab => setActiveTab(tab)}
             />
@@ -234,6 +257,7 @@ export default function App() {
             <OrthancSyncView
               status={orthancStatus}
               config={pacsConfig}
+              isSyncing={isSyncing}
               onSyncNow={handleSyncOrthanc}
               onReceiveSimulatedStudy={() => loadData()}
             />
@@ -291,6 +315,14 @@ export default function App() {
           onSwitchRole={handleSwitchRole}
           onClose={() => setShowLoginModal(false)}
         />
+      )}
+
+      {/* Global Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-4 py-3 rounded-lg shadow-2xl z-50 flex items-center gap-3 border border-slate-700 animate-in fade-in slide-in-from-bottom-4">
+          <CheckCircle className="w-5 h-5 text-emerald-400" />
+          <span className="text-sm font-medium">{toastMessage}</span>
+        </div>
       )}
     </div>
   );

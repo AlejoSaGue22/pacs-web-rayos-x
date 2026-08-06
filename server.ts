@@ -14,7 +14,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 function validateEnv() {
-  const required = ['DATABASE_URL', 'JWT_SECRET', 'ORTHANC_URL'];
+  const required = ['DATABASE_URL', 'JWT_SECRET', 'ORTHANC_URL', 'ORTHANC_USER', 'ORTHANC_PASS'];
   const missing = required.filter(key => !process.env[key]);
   if (missing.length > 0) {
     console.error(`[ERROR] Variables de entorno faltantes: ${missing.join(', ')}`);
@@ -75,6 +75,8 @@ async function startServer() {
       ipAddress: req.ip || '127.0.0.1',
     });
 
+    await pacsStore.updateUserLastLogin(user.id);
+
     res.json({ token, user });
   });
 
@@ -112,7 +114,7 @@ async function startServer() {
   });
 
   // Dashboard Stats
-  app.get('/api/dashboard/stats', async (req, res) => {
+  app.get('/api/dashboard/stats', authenticate, async (req, res) => {
     const allStudies = await pacsStore.getStudies();
     const allPatients = await pacsStore.getPatients();
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -144,17 +146,22 @@ async function startServer() {
       recentStudies,
       recentAudit,
       orthancOnline: orthanc?.online,
+      connectedEquipment: orthanc?.connectedEquipment || [],
     });
   });
 
+  app.get('/api/dashboard/weekly-stats', authenticate, async (req, res) => {
+    res.json(await pacsStore.getWeeklyStats());
+  });
+
   // Patients CRUD
-  app.get('/api/patients', async (req, res) => {
+  app.get('/api/patients', authenticate, async (req, res) => {
     const search = req.query.search as string;
     const patients = await pacsStore.getPatients(search);
     res.json(patients);
   });
 
-  app.get('/api/patients/:id', async (req, res) => {
+  app.get('/api/patients/:id', authenticate, async (req, res) => {
     const patient = await pacsStore.getPatientById(req.params.id);
     if (!patient) {
       return res.status(404).json({ error: 'Paciente no encontrado' });
@@ -210,7 +217,7 @@ async function startServer() {
   });
 
   // Studies Endpoints
-  app.get('/api/studies', async (req, res) => {
+  app.get('/api/studies', authenticate, async (req, res) => {
     const filters = {
       searchTerm: req.query.searchTerm as string,
       modality: req.query.modality as string,
@@ -222,16 +229,16 @@ async function startServer() {
     res.json(studies);
   });
 
-  app.get('/api/studies/:id', async (req, res) => {
+  app.get('/api/studies/:id', authenticate, async (req, res) => {
     const study = await pacsStore.getStudyById(req.params.id);
     if (!study) {
       return res.status(404).json({ error: 'Estudio no encontrado' });
     }
 
     await pacsStore.addAuditLog({
-      userId: (req.query.userId as string) || 'usr-002',
-      userName: (req.query.userName as string) || 'Dra. Patricia Gómez',
-      userRole: (req.query.userRole as any) || 'Radiologo',
+      userId: req.user?.userId || 'system',
+      userName: req.user?.userName || 'System',
+      userRole: (req.user?.userRole as any) || 'Admin',
       action: 'STUDY_VIEW',
       description: `Apertura de metadatos de estudio ${study.accessionNumber} (${study.patientName})`,
       ipAddress: req.ip || '127.0.0.1',
@@ -257,7 +264,7 @@ async function startServer() {
   });
 
   // Orthanc DICOM REST API endpoints
-  app.get('/api/orthanc/status', async (req, res) => {
+  app.get('/api/orthanc/status', authenticate, async (req, res) => {
     res.json(await pacsStore.getOrthancStatus());
   });
 
@@ -270,7 +277,7 @@ async function startServer() {
     res.json(result);
   });
 
-  app.get('/api/orthanc/instances/:id/tags', async (req, res) => {
+  app.get('/api/orthanc/instances/:id/tags', authenticate, async (req, res) => {
     const item = await pacsStore.getInstanceById(req.params.id);
     if (!item) {
       return res.status(404).json({ error: 'Instancia DICOM no encontrada en Orthanc' });
@@ -295,8 +302,8 @@ async function startServer() {
   app.get('/api/orthanc/dicom/:instanceId', async (req, res) => {
     const { instanceId } = req.params;
     try {
-      const orthancUrl = `${process.env.ORTHANC_URL || 'http://localhost:8042'}`;
-      const token = Buffer.from('orthanc:orthanc').toString('base64');
+      const orthancUrl = process.env.ORTHANC_URL || 'http://localhost:8042';
+      const token = Buffer.from(`${process.env.ORTHANC_USER}:${process.env.ORTHANC_PASS}`).toString('base64');
       const response = await fetch(`${orthancUrl}/instances/${instanceId}/file`, {
         headers: { Authorization: `Basic ${token}` },
       });
@@ -316,7 +323,10 @@ async function startServer() {
 
   app.post('/api/orthanc/webhook', async (req, res) => {
     const secret = req.headers['x-webhook-secret'];
-    const expectedSecret = process.env.WEBHOOK_SECRET || 'pacs-webhook-secret-2026';
+    const expectedSecret = process.env.WEBHOOK_SECRET;
+    if (!expectedSecret) {
+      return res.status(500).json({ error: 'Webhook secret not configured' });
+    }
 
     if (secret !== expectedSecret) {
       return res.status(401).json({ error: 'Invalid webhook secret' });
@@ -348,14 +358,14 @@ async function startServer() {
   });
 
   // Audit Logs
-  app.get('/api/audit', async (req, res) => {
+  app.get('/api/audit', authenticate, async (req, res) => {
     const action = req.query.action as string;
     const search = req.query.search as string;
     res.json(await pacsStore.getAuditLogs(action, search));
   });
 
   // Config
-  app.get('/api/config', async (req, res) => {
+  app.get('/api/config', authenticate, async (req, res) => {
     res.json(await pacsStore.getPacsConfig());
   });
 
@@ -371,7 +381,7 @@ async function startServer() {
   });
 
   // Users
-  app.get('/api/users', async (req, res) => {
+  app.get('/api/users', authenticate, async (req, res) => {
     res.json(await pacsStore.getUsers());
   });
 

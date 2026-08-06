@@ -22,7 +22,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { DicomStudy, DicomSeries, DicomInstance } from '../../types/pacs';
-import { DicomCanvasRenderer } from './DicomCanvasRenderer';
+
 import { CornerstoneViewport } from './CornerstoneViewport';
 import {
   setToolActive,
@@ -99,7 +99,7 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 bg-emerald-500/10 text-emerald-400 text-xs font-semibold px-2.5 py-1 rounded border border-emerald-500/20">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            OHIF Viewer v3.8 - Mindray DigiEye 330 PACS
+            Visor DICOM - {study.patientName}
           </div>
           <div className="text-sm font-semibold text-slate-200">
             {study.patientName} <span className="text-slate-500">({study.patientDocument})</span>
@@ -313,21 +313,13 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
 
               <div className="w-full h-28 bg-black rounded border border-slate-800 relative overflow-hidden flex items-center justify-center">
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent z-10" />
-                <DicomCanvasRenderer
-                  bodyPart={s.bodyPartExamined}
-                  viewPosition={s.instances[0]?.viewPosition || 'AP'}
-                  windowCenter={s.instances[0]?.windowCenter || 2048}
-                  windowWidth={s.instances[0]?.windowWidth || 4096}
-                  invert={false}
-                  rotation={0}
-                  flipH={false}
-                  flipV={false}
-                  zoom={0.4}
-                  pan={{ x: 0, y: 0 }}
-                  activeTool="none"
-                  measurements={[]}
-                  isThumbnail={true}
-                />
+                {s.instances[0] && (
+                  <CornerstoneViewport
+                    instanceId={s.instances[0].id}
+                    viewportId={`thumbnail-${s.id}`}
+                    className="w-full h-full pointer-events-none"
+                  />
+                )}
                 <div className="absolute bottom-1 right-2 z-20 text-[10px] text-amber-400 font-mono font-bold">
                   {s.numberOfInstances} Img
                 </div>
@@ -387,17 +379,9 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
                         className="w-full h-full"
                       />
                     ) : (
-                      <DicomCanvasRenderer
-                        bodyPart={s.bodyPartExamined}
-                        viewPosition="AP"
-                        windowCenter={2048} windowWidth={4096}
-                        invert={false} rotation={0} flipH={false} flipV={false}
-                        zoom={1} pan={{ x: 0, y: 0 }} activeTool="none"
-                        measurements={[]}
-                        patientName={study.patientName}
-                        patientId={study.patientDocument}
-                        seriesDescription={s.seriesDescription}
-                      />
+                      <div className="flex items-center justify-center w-full h-full text-slate-600 text-xs font-medium">
+                        Sin imagen DICOM
+                      </div>
                     )}
                   </div>
                 );
@@ -419,17 +403,9 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
                         className="w-full h-full"
                       />
                     ) : (
-                      <DicomCanvasRenderer
-                        bodyPart={s?.bodyPartExamined || 'CHEST'}
-                        viewPosition="AP"
-                        windowCenter={2048} windowWidth={4096}
-                        invert={false} rotation={0} flipH={false} flipV={false}
-                        zoom={1} pan={{ x: 0, y: 0 }} activeTool="none"
-                        measurements={[]}
-                        patientName={study.patientName}
-                        patientId={study.patientDocument}
-                        seriesDescription={s?.seriesDescription || 'Proyección Radiográfica'}
-                      />
+                      <div className="flex items-center justify-center w-full h-full text-slate-600 text-xs font-medium">
+                        Sin imagen DICOM
+                      </div>
                     )}
                   </div>
                 );

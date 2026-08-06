@@ -14,7 +14,7 @@ import {
   Tv,
 } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
-import { DicomStudy, AuditLog } from '../../types/pacs';
+import { DicomStudy, AuditLog, OrthancStatus, PACSConfig } from '../../types/pacs';
 
 interface DashboardViewProps {
   stats: {
@@ -27,7 +27,11 @@ interface DashboardViewProps {
     recentStudies: DicomStudy[];
     recentAudit: AuditLog[];
     orthancOnline: boolean;
+    connectedEquipment?: { name: string; aetitle: string; ip: string; port: number; status: string }[];
   };
+  weeklyStats: { day: string; estudios: number }[] | null;
+  pacsConfig: PACSConfig | null;
+  orthancStatus: OrthancStatus | null;
   onOpenStudyViewer: (study: DicomStudy) => void;
   onNavigateTab: (tab: 'patients' | 'studies' | 'orthanc' | 'audit') => void;
 }
@@ -36,20 +40,32 @@ const COLORS = ['#06b6d4', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6'];
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   stats,
+  weeklyStats,
+  pacsConfig,
+  orthancStatus,
   onOpenStudyViewer,
   onNavigateTab,
 }) => {
   const pieData = Object.entries(stats.modalityCounts).map(([name, value]) => ({ name, value }));
 
-  const chartBarData = [
-    { day: 'Lun', estudios: 4 },
-    { day: 'Mar', estudios: 6 },
-    { day: 'Mié', estudios: 8 },
-    { day: 'Jue', estudios: 5 },
-    { day: 'Vie', estudios: 9 },
-    { day: 'Sáb', estudios: 3 },
+  const chartBarData = weeklyStats || [
+    { day: 'Lun', estudios: 0 },
+    { day: 'Mar', estudios: 0 },
+    { day: 'Mié', estudios: 0 },
+    { day: 'Jue', estudios: 0 },
+    { day: 'Vie', estudios: 0 },
+    { day: 'Sáb', estudios: 0 },
     { day: 'Hoy', estudios: stats.studiesToday },
   ];
+
+  const institutionName = pacsConfig?.institutionName || 'Mini PACS - Rayos X';
+  const storagePercent = stats.totalStorageMb > 0 ? Math.min(100, Math.round((stats.totalStorageMb / 50000) * 100)) : 0;
+  const equipment = stats.connectedEquipment?.[0] || orthancStatus?.connectedEquipment?.[0];
+  const equipmentName = equipment?.name || 'Equipo DICOM';
+  const equipmentAET = equipment?.aetitle || pacsConfig?.remoteAETitle || 'ORTHANC_PACS';
+  const equipmentPort = equipment?.port || pacsConfig?.remotePort || 4242;
+  const isEquipmentConnected = orthancStatus?.online ?? stats.orthancOnline;
+  const indexedPercent = stats.studiesMonth > 0 ? Math.min(100, Math.round((stats.studiesMonth / Math.max(stats.studiesMonth, 1)) * 100)) : 100;
 
   return (
     <div className="space-y-6">
@@ -60,7 +76,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             PACS Dashboard
           </span>
           <h2 className="text-lg font-bold text-slate-800 mt-1.5">
-            Diagnostic Imaging - Mindray DigiEye 330
+            {institutionName}
           </h2>
           <p className="text-xs text-slate-500">
             Recepción e indexación automática de estudios DICOM mediante almacenamiento C-STORE en servidor Orthanc.
@@ -91,7 +107,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <h3 className="text-2xl font-bold text-slate-800">{stats.totalPatients}</h3>
           <div className="mt-1 text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
             <CheckCircle className="w-3 h-3" />
-            Active registry database
+            Base de datos activa
           </div>
         </div>
 
@@ -99,7 +115,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Studies (Today)</p>
           <h3 className="text-2xl font-bold text-slate-800">{stats.studiesToday}</h3>
           <div className="mt-1 text-[10px] text-blue-600 font-semibold">
-            DigiEye 330 Digital Rx (DX)
+            Estudios de imagen digital
           </div>
         </div>
 
@@ -107,7 +123,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Studies (This Month)</p>
           <h3 className="text-2xl font-bold text-slate-800">{stats.studiesMonth}</h3>
           <div className="mt-1 text-[10px] text-amber-600 font-semibold">
-            100% Indexed in Orthanc
+            {indexedPercent}% Indexado en Orthanc
           </div>
         </div>
 
@@ -115,7 +131,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Storage Utilization</p>
           <h3 className="text-2xl font-bold text-slate-800">{stats.totalStorageMb.toFixed(1)} MB</h3>
           <div className="w-full bg-slate-100 h-1 rounded-full mt-2 overflow-hidden">
-            <div className="bg-blue-600 h-1 w-[45%] rounded-full"></div>
+            <div className="bg-blue-600 h-1 rounded-full" style={{ width: `${storagePercent}%` }}></div>
           </div>
         </div>
       </div>
@@ -127,7 +143,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-bold text-slate-800">Volumen Diario de Estudios Radiográficos</h3>
-              <p className="text-xs text-slate-500">Imágenes tomadas con equipo Mindray DigiEye 330</p>
+              <p className="text-xs text-slate-500">Estudios capturados con equipo de imagen digital</p>
             </div>
             <span className="text-[11px] font-mono font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
               Modalidad DX
@@ -184,15 +200,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-center justify-between text-xs mb-0.5">
               <span className="font-bold text-slate-800 flex items-center gap-1.5">
                 <Tv className="w-3.5 h-3.5 text-blue-600" />
-                DROC Mindray DigiEye 330
+                {equipmentName}
               </span>
-              <span className="text-emerald-600 font-bold flex items-center gap-1 text-[11px]">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                Conectado
+              <span className={`font-bold flex items-center gap-1 text-[11px] ${isEquipmentConnected ? 'text-emerald-600' : 'text-rose-600'}`}>
+                <span className={`w-2 h-2 rounded-full ${isEquipmentConnected ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                {isEquipmentConnected ? 'Conectado' : 'Desconectado'}
               </span>
             </div>
             <p className="text-[11px] text-slate-500">
-              C-STORE directo a AET <span className="text-blue-700 font-mono font-bold">ORTHANC_PACS:4242</span>
+              C-STORE directo a AET <span className="text-blue-700 font-mono font-bold">{equipmentAET}:{equipmentPort}</span>
             </p>
           </div>
         </div>
@@ -205,7 +221,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-white">
             <div>
               <h3 className="text-sm font-bold text-slate-800">Últimos Estudios Recibidos</h3>
-              <p className="text-xs text-slate-500">Sincronizados desde el detector digital Mindray</p>
+              <p className="text-xs text-slate-500">Sincronizados desde el servidor DICOM Orthanc</p>
             </div>
             <button
               onClick={() => onNavigateTab('studies')}

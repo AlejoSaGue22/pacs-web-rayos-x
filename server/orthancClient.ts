@@ -1,6 +1,11 @@
 const ORTHANC_URL = process.env.ORTHANC_URL || 'http://localhost:8042';
-const ORTHANC_USER = process.env.ORTHANC_USER || 'orthanc';
-const ORTHANC_PASS = process.env.ORTHANC_PASS || 'orthanc';
+const ORTHANC_USER = process.env.ORTHANC_USER;
+const ORTHANC_PASS = process.env.ORTHANC_PASS;
+
+if (!ORTHANC_USER || !ORTHANC_PASS) {
+  console.error('[ERROR] ORTHANC_USER y ORTHANC_PASS deben estar definidas en .env');
+  process.exit(1);
+}
 
 function authHeaders(): Record<string, string> {
   const token = Buffer.from(`${ORTHANC_USER}:${ORTHANC_PASS}`).toString('base64');
@@ -60,6 +65,14 @@ export const OrthancClient = {
 
   getInstanceFullTags(instanceId: string) {
     return orthancGet(`/instances/${instanceId}/tags`);
+  },
+
+  getModalities() {
+    return orthancGet('/modalities');
+  },
+
+  getModality(name: string) {
+    return orthancGet(`/modalities/${name}`);
   },
 
   getSeriesOfStudy(studyId: string) {

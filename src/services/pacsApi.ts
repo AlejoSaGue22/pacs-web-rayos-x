@@ -79,21 +79,27 @@ export class PacsApiService {
 
   // Dashboard Stats
   static async getDashboardStats() {
-    const res = await fetch(`${API_BASE}/dashboard/stats`);
+    const res = await fetch(`${API_BASE}/dashboard/stats`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error al cargar métricas del panel');
+    return res.json();
+  }
+
+  static async getWeeklyStats() {
+    const res = await fetch(`${API_BASE}/dashboard/weekly-stats`, { headers: authHeaders() });
+    if (!res.ok) throw new Error('Error al cargar estadísticas semanales');
     return res.json();
   }
 
   // Patients
   static async getPatients(search?: string): Promise<Patient[]> {
     const url = search ? `${API_BASE}/patients?search=${encodeURIComponent(search)}` : `${API_BASE}/patients`;
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error al cargar pacientes');
     return res.json();
   }
 
   static async getPatientById(id: string): Promise<Patient & { studies: DicomStudy[] }> {
-    const res = await fetch(`${API_BASE}/patients/${id}`);
+    const res = await fetch(`${API_BASE}/patients/${id}`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Paciente no encontrado');
     return res.json();
   }
@@ -136,14 +142,13 @@ export class PacsApiService {
     if (filters?.dateTo) params.append('dateTo', filters.dateTo);
     if (filters?.status && filters.status !== 'ALL') params.append('status', filters.status);
 
-    const res = await fetch(`${API_BASE}/studies?${params.toString()}`);
+    const res = await fetch(`${API_BASE}/studies?${params.toString()}`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error al obtener estudios DICOM');
     return res.json();
   }
 
   static async getStudyById(id: string): Promise<DicomStudy> {
-    const user = this.getCurrentUser();
-    const res = await fetch(`${API_BASE}/studies/${id}?userId=${user.id}&userName=${encodeURIComponent(user.name)}&userRole=${user.role}`);
+    const res = await fetch(`${API_BASE}/studies/${id}`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Estudio no encontrado');
     return res.json();
   }
@@ -160,7 +165,7 @@ export class PacsApiService {
 
   // Orthanc DICOM Integration
   static async getOrthancStatus(): Promise<OrthancStatus> {
-    const res = await fetch(`${API_BASE}/orthanc/status`);
+    const res = await fetch(`${API_BASE}/orthanc/status`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error consultando el estado de Orthanc');
     return res.json();
   }
@@ -175,7 +180,7 @@ export class PacsApiService {
   }
 
   static async getInstanceTags(instanceId: string) {
-    const res = await fetch(`${API_BASE}/orthanc/instances/${instanceId}/tags`);
+    const res = await fetch(`${API_BASE}/orthanc/instances/${instanceId}/tags`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error al obtener cabeceras DICOM de la instancia');
     return res.json();
   }
@@ -186,14 +191,14 @@ export class PacsApiService {
     if (actionFilter && actionFilter !== 'ALL') params.append('action', actionFilter);
     if (search) params.append('search', search);
 
-    const res = await fetch(`${API_BASE}/audit?${params.toString()}`);
+    const res = await fetch(`${API_BASE}/audit?${params.toString()}`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error consultando bitácora de auditoría');
     return res.json();
   }
 
   // PACS Config
   static async getPacsConfig(): Promise<PACSConfig> {
-    const res = await fetch(`${API_BASE}/config`);
+    const res = await fetch(`${API_BASE}/config`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error al obtener configuración');
     return res.json();
   }
@@ -210,7 +215,7 @@ export class PacsApiService {
 
   // Users
   static async getUsers(): Promise<User[]> {
-    const res = await fetch(`${API_BASE}/users`);
+    const res = await fetch(`${API_BASE}/users`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error al obtener lista de usuarios');
     return res.json();
   }

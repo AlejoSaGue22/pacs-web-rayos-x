@@ -414,8 +414,10 @@ class PacsStore {
     const status = await prisma.orthancStatus.findFirst();
 
     let systemInfo: any = {};
+    let modalitiesData: any[] = [];
     try {
       systemInfo = await OrthancClient.getSystem();
+      modalitiesData = await OrthancClient.getModalities();
     } catch {
       // Orthanc offline
     }
@@ -425,7 +427,22 @@ class PacsStore {
     const seriesCount = await prisma.series.count();
     const instanceCount = await prisma.instance.count();
 
-    const connectedEquipment = status?.connectedEquipment || [];
+    const storageUsageBytes = systemInfo.DiskSize
+      ? parseInt(systemInfo.DiskSize, 10)
+      : 0;
+    const storageUsageMb = storageUsageBytes
+      ? Math.round((storageUsageBytes / (1024 * 1024)) * 10) / 10
+      : (status?.storageUsageMb || 0);
+
+    const connectedEquipment = Array.isArray(modalitiesData)
+      ? modalitiesData.map((m: any) => ({
+        name: m.Type || 'DICOM Device',
+        aetitle: m.AET || m.SymbolicName || '',
+        ip: m.Host || '',
+        port: m.Port || 0,
+        status: 'ACTIVE' as const,
+      }))
+      : (status?.connectedEquipment || []);
 
     return {
       online: !!(systemInfo.ApiVersion),
@@ -433,7 +450,7 @@ class PacsStore {
       aetitle: systemInfo.DicomAet || (status?.aetitle || ''),
       dicomPort: systemInfo.DicomPort || (status?.dicomPort || 4242),
       httpPort: systemInfo.HttpPort || (status?.httpPort || 8042),
-      storageUsageMb: status?.storageUsageMb || 0,
+      storageUsageMb,
       patientCount,
       studyCount,
       seriesCount,
@@ -448,10 +465,24 @@ class PacsStore {
   }
 
   async updatePacsConfig(newConfig: any, userId: string, userName: string, userRole: any) {
+    const existing = await this.getPacsConfig();
+    const mergedConfig = { ...existing, ...newConfig };
     const updated = await prisma.pacsConfig.upsert({
       where: { id: 1 },
-      update: { ...newConfig },
-      create: { id: 1, ...newConfig },
+      update: newConfig,
+      create: {
+        id: 1,
+        anonymizeExportDefault: false,
+        institutionName: 'Consultorio',
+        orthancServerUrl: 'http://localhost:8042',
+        localAETitle: 'ORTHANC',
+        remoteAETitle: 'REMOTE',
+        remoteIp: '127.0.0.1',
+        remotePort: 104,
+        autoSyncIntervalSec: 60,
+        retentionDays: 365,
+        ...mergedConfig
+      },
     });
 
     await this.addAuditLog({
@@ -502,12 +533,55 @@ class PacsStore {
     return user;
   }
 
+  async updateUserLastLogin(id: string) {
+    await prisma.user.update({
+      where: { id },
+      data: { lastLogin: new Date().toISOString() },
+    });
+  }
+
   async deleteUser(id: string) {
     await prisma.auditLog.updateMany({
       where: { userId: id },
       data: { userId: null },
     });
     await prisma.user.delete({ where: { id } });
+  }
+
+  async getWeeklyStats() {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - mondayOffset);
+    monday.setHours(0, 0, 0, 0);
+
+    const days = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+    const daily: Record<string, number> = {};
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      const key = d.toISOString().slice(0, 10);
+      const label = i === dayOfWeek - (dayOfWeek === 0 ? -6 : 1) ? 'Hoy' : days[i];
+      const count = await prisma.study.count({
+        where: {
+          studyDate: {
+            gte: d.toISOString().slice(0, 10),
+            lt: new Date(d.getTime() + 86400000).toISOString().slice(0, 10),
+          },
+        },
+      });
+      daily[label] = count;
+    }
+
+    const totalWeek = Object.values(daily).reduce((a, b) => a + b, 0);
+
+    return {
+      days: Object.entries(daily).map(([day, count]) => ({ day, estudios: count })),
+      totalWeek,
+      mostActiveDay: Object.entries(daily).reduce((max, entry) =>
+        entry[1] > max[1] ? entry : max, ['', 0])[0],
+    };
   }
 }
 

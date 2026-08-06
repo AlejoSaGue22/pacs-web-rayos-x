@@ -1,5 +1,5 @@
 import React from 'react';
-import { User } from '../../types/pacs';
+import { User, PACSConfig } from '../../types/pacs';
 import {
   Activity,
   Server,
@@ -10,6 +10,8 @@ import {
 interface HeaderProps {
   currentUser: User;
   orthancOnline: boolean;
+  isSyncing?: boolean;
+  pacsConfig?: PACSConfig | null;
   onSyncOrthanc: () => void;
   onOpenLoginModal: () => void;
   onQuickSearch?: (query: string) => void;
@@ -19,9 +21,13 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   currentUser,
   orthancOnline,
+  isSyncing = false,
+  pacsConfig,
   onSyncOrthanc,
   onOpenLoginModal,
 }) => {
+  const institutionName = pacsConfig?.institutionName || 'Mini PACS - Rayos X';
+  const equipmentAET = pacsConfig?.remoteAETitle || 'ORTHANC_PACS';
   return (
     <header className="h-14 bg-white border-b border-slate-200 px-6 flex items-center justify-between z-30 sticky top-0 shadow-xs shrink-0 font-sans">
       {/* Brand & Equipment Status */}
@@ -32,9 +38,9 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <div>
             <h1 className="text-sm font-bold tracking-tight text-slate-900 flex items-center gap-2">
-              MiniPACS <span className="text-blue-700 bg-blue-50 text-[10px] font-mono px-1.5 py-0.5 rounded border border-blue-200/60">DigiEye 330</span>
+              MiniPACS <span className="text-blue-700 bg-blue-50 text-[10px] font-mono px-1.5 py-0.5 rounded border border-blue-200/60">{institutionName}</span>
             </h1>
-            <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold leading-none">Diagnostic Imaging</p>
+            <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold leading-none">{equipmentAET}</p>
           </div>
         </div>
 
@@ -59,11 +65,12 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex items-center gap-3">
         <button
           onClick={onSyncOrthanc}
+          disabled={isSyncing}
           title="Sincronizar estudios con servidor Orthanc"
-          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md border border-slate-200 transition-colors flex items-center gap-1.5 text-xs font-medium"
+          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 rounded-md border border-slate-200 transition-colors flex items-center gap-1.5 text-xs font-medium"
         >
-          <RefreshCw className="w-3.5 h-3.5 text-blue-600" />
-          <span className="hidden sm:inline">Sync DICOM</span>
+          <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${isSyncing ? 'animate-spin' : ''}`} />
+          <span className="hidden sm:inline">{isSyncing ? 'Sync...' : 'Sync DICOM'}</span>
         </button>
 
         {/* User Badge / Role Switcher */}

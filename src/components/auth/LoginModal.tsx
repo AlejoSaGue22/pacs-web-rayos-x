@@ -155,9 +155,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             {loading ? 'Verificando...' : 'Ingresar al sistema'}
           </button>
 
-          <p className="text-center text-xs text-slate-400">
-            Contraseña por defecto: <span className="font-mono text-slate-600">pacs2026</span>
-          </p>
+
         </form>
       </div>
     </div>

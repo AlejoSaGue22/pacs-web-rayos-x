@@ -17,6 +17,7 @@ import { OrthancStatus, PACSConfig } from '../../types/pacs';
 interface OrthancSyncViewProps {
   status: OrthancStatus;
   config: PACSConfig;
+  isSyncing?: boolean;
   onSyncNow: () => void;
   onReceiveSimulatedStudy: (studyData: any) => void;
 }
@@ -24,6 +25,7 @@ interface OrthancSyncViewProps {
 export const OrthancSyncView: React.FC<OrthancSyncViewProps> = ({
   status,
   config,
+  isSyncing = false,
   onSyncNow,
   onReceiveSimulatedStudy,
 }) => {
@@ -79,10 +81,11 @@ export const OrthancSyncView: React.FC<OrthancSyncViewProps> = ({
 
         <button
           onClick={onSyncNow}
-          className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md text-xs flex items-center gap-2 shadow-xs transition-colors shrink-0"
+          disabled={isSyncing}
+          className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium rounded-md text-xs flex items-center gap-2 shadow-xs transition-colors shrink-0"
         >
-          <RefreshCw className="w-4 h-4" />
-          Ejecutar Sincronización Manual
+          <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+          {isSyncing ? 'Sincronizando...' : 'Ejecutar Sincronización Manual'}
         </button>
       </div>
 

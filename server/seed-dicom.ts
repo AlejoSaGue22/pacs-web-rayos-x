@@ -1,7 +1,7 @@
 import 'dotenv/config';
 
-const ORTHANC = 'http://localhost:8042';
-const AUTH = Buffer.from('orthanc:orthanc').toString('base64');
+const ORTHANC = process.env.ORTHANC_URL || 'http://localhost:8042';
+const AUTH = Buffer.from(`${process.env.ORTHANC_USER}:${process.env.ORTHANC_PASS}`).toString('base64');
 
 async function createDicom(tags: Record<string, string>) {
   const res = await fetch(`${ORTHANC}/tools/create-dicom`, {

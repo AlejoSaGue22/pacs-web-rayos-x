@@ -18,21 +18,25 @@ interface SidebarProps {
   onTabChange: (tab: ActiveTab) => void;
   userRole: UserRole;
   unreadCount?: number;
+  orthancOnline?: boolean;
+  remoteAETitle?: string;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   onTabChange,
   userRole,
+  orthancOnline = false,
+  remoteAETitle = '',
 }) => {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'patients', label: 'Patients', icon: Users },
-    { id: 'studies', label: 'Studies', icon: FolderKanban },
-    { id: 'orthanc', label: 'Orthanc Server', icon: Server },
-    { id: 'audit', label: 'Audit Logs', icon: ClipboardList },
-    { id: 'users', label: 'Users & Roles', icon: Shield, adminOnly: true },
-    { id: 'config', label: 'Settings', icon: Settings, adminOnly: true },
+    { id: 'patients', label: 'Pacientes', icon: Users },
+    { id: 'studies', label: 'Estudios', icon: FolderKanban },
+    { id: 'orthanc', label: 'Servidor Orthanc', icon: Server },
+    { id: 'audit', label: 'Registro de Auditoría', icon: ClipboardList },
+    { id: 'users', label: 'Usuarios y Roles', icon: Shield, adminOnly: true },
+    { id: 'config', label: 'Configuración', icon: Settings, adminOnly: true },
   ];
 
   return (
@@ -78,15 +82,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             DR
           </div>
           <div className="overflow-hidden">
-            <p className="text-xs font-semibold text-white truncate">Mindray DROC</p>
-            <p className="text-[10px] text-slate-400 truncate">AET: MINDRAY_DROC</p>
+            <p className="text-xs font-semibold text-white truncate">{remoteAETitle || 'PACS'}</p>
+            <p className="text-[10px] text-slate-400 truncate">AET: {remoteAETitle || 'ORTHANC'}</p>
           </div>
         </div>
 
         <div className="flex items-center justify-between text-[10px] text-slate-400 uppercase font-bold tracking-tight border-t border-slate-800/80 pt-2.5">
           <span>Orthanc PACS</span>
-          <span className="text-emerald-400 flex items-center gap-1 font-semibold">
-            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> Connected
+          <span className={`flex items-center gap-1 font-semibold ${orthancOnline ? 'text-emerald-400' : 'text-rose-400'}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${orthancOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+            {orthancOnline ? 'Connected' : 'Offline'}
           </span>
         </div>
       </div>

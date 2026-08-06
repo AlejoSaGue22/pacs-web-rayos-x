@@ -1,7 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'pacs-rayos-x-secret-key-2026';
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  console.error('[ERROR] JWT_SECRET debe estar definida en .env');
+  process.exit(1);
+}
 
 export interface AuthPayload {
   userId: string;
