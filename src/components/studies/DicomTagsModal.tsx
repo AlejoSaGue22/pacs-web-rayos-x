@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, Search, FileText, Download, Copy, Check } from 'lucide-react';
+import { X, Search, FileText, Download, Copy, Check, FileOutput } from 'lucide-react';
 import { DicomStudy } from '../../types/pacs';
+import { PacsApiService } from '../../services/pacsApi';
 
 interface DicomTagsModalProps {
   study: DicomStudy;
@@ -67,6 +68,19 @@ export const DicomTagsModal: React.FC<DicomTagsModalProps> = ({ study, onClose }
           >
             {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4 text-blue-600" />}
             {copied ? 'Copiado JSON' : 'Copiar JSON'}
+          </button>
+
+          <button
+            onClick={() => {
+              PacsApiService.triggerDownload(
+                PacsApiService.getPdfDownloadUrl(study.id),
+                `Informe_${study.accessionNumber}_${study.patientDocument}.pdf`
+              );
+            }}
+            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors"
+          >
+            <FileOutput className="w-4 h-4" />
+            Exportar PDF
           </button>
         </div>
 

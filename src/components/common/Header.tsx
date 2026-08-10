@@ -4,7 +4,7 @@ import {
   Activity,
   Server,
   RefreshCw,
-  ChevronDown,
+  LogOut,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -13,7 +13,7 @@ interface HeaderProps {
   isSyncing?: boolean;
   pacsConfig?: PACSConfig | null;
   onSyncOrthanc: () => void;
-  onOpenLoginModal: () => void;
+  onLogout: () => void;
   onQuickSearch?: (query: string) => void;
   quickSearchTerm?: string;
 }
@@ -24,13 +24,12 @@ export const Header: React.FC<HeaderProps> = ({
   isSyncing = false,
   pacsConfig,
   onSyncOrthanc,
-  onOpenLoginModal,
+  onLogout,
 }) => {
   const institutionName = pacsConfig?.institutionName || 'Mini PACS - Rayos X';
   const equipmentAET = pacsConfig?.remoteAETitle || 'ORTHANC_PACS';
   return (
     <header className="h-14 bg-white border-b border-slate-200 px-6 flex items-center justify-between z-30 sticky top-0 shadow-xs shrink-0 font-sans">
-      {/* Brand & Equipment Status */}
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-md bg-blue-600 flex items-center justify-center text-white font-bold shadow-xs">
@@ -46,7 +45,6 @@ export const Header: React.FC<HeaderProps> = ({
 
         <div className="h-5 w-px bg-slate-200 hidden md:block" />
 
-        {/* Orthanc DICOM Server Status Badge */}
         <div className="hidden md:flex items-center gap-2 px-2.5 py-1 bg-slate-100 rounded-full border border-slate-200 text-xs">
           <Server className="w-3.5 h-3.5 text-blue-600" />
           <span className="text-slate-500 font-medium text-[11px]">Orthanc:</span>
@@ -61,7 +59,6 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* User Session & Role Controls */}
       <div className="flex items-center gap-3">
         <button
           onClick={onSyncOrthanc}
@@ -73,21 +70,28 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="hidden sm:inline">{isSyncing ? 'Sync...' : 'Sync DICOM'}</span>
         </button>
 
-        {/* User Badge / Role Switcher */}
-        <button
-          onClick={onOpenLoginModal}
-          className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-3 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer shadow-xs"
-        >
+        <div className="h-5 w-px bg-slate-200" />
+
+        <div className="flex items-center gap-2.5">
           <img
             src={currentUser.avatar || 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?w=150&auto=format&fit=crop&q=80'}
             alt={currentUser.name}
-            className="w-5 h-5 rounded-full object-cover ring-1 ring-white/30"
+            className="w-6 h-6 rounded-full object-cover ring-1 ring-slate-200"
           />
           <div className="text-left hidden sm:block">
-            <span className="text-xs font-medium text-white">{currentUser.name}</span>
-            <span className="text-[10px] text-slate-300 ml-1 font-normal">({currentUser.role})</span>
+            <span className="text-xs font-medium text-slate-800">{currentUser.name}</span>
+            <span className="text-[10px] text-slate-400 ml-1.5 px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 font-semibold">
+              {currentUser.role}
+            </span>
           </div>
-          <ChevronDown className="w-3.5 h-3.5 text-slate-400 ml-0.5" />
+        </div>
+
+        <button
+          onClick={onLogout}
+          title="Cerrar sesión"
+          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+        >
+          <LogOut className="w-4 h-4" />
         </button>
       </div>
     </header>

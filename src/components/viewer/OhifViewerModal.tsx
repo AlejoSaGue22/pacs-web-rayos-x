@@ -1,9 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   X,
-  RotateCw,
-  FlipHorizontal,
-  FlipVertical,
   Sun,
   Move,
   ZoomIn,
@@ -15,6 +12,7 @@ import {
   RefreshCw,
   Camera,
   FileText,
+  FileOutput,
   Columns,
   Grid2x2,
   Square as SquareIcon,
@@ -22,7 +20,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { DicomStudy, DicomSeries, DicomInstance } from '../../types/pacs';
-
+import { DicomCanvasRenderer } from './DicomCanvasRenderer';
 import { CornerstoneViewport } from './CornerstoneViewport';
 import {
   setToolActive,
@@ -31,6 +29,7 @@ import {
   invertViewport,
   TOOL_NAMES,
 } from './cornerstoneInit';
+import { PacsApiService } from '../../services/pacsApi';
 
 interface OhifViewerModalProps {
   study: DicomStudy;
@@ -118,6 +117,18 @@ export const OhifViewerModal: React.FC<OhifViewerModalProps> = ({ study, onClose
           >
             <FileText className="w-3.5 h-3.5" />
             Tags DICOM
+          </button>
+          <button
+            onClick={() => {
+              PacsApiService.triggerDownload(
+                PacsApiService.getPdfDownloadUrl(study.id),
+                `Informe_${study.accessionNumber}_${study.patientDocument}.pdf`
+              );
+            }}
+            className="px-3 py-1.5 rounded text-xs font-medium flex items-center gap-1.5 transition-colors bg-rose-600 hover:bg-rose-700 text-white"
+          >
+            <FileOutput className="w-3.5 h-3.5" />
+            PDF
           </button>
           <button
             onClick={onClose}

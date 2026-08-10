@@ -1,4 +1,4 @@
-import { Patient, DicomStudy, User, AuditLog, OrthancStatus, PACSConfig, StudyFilters, UserRole } from '../types/pacs';
+import { Patient, DicomStudy, User, AuditLog, OrthancStatus, PACSConfig, StudyFilters } from '../types/pacs';
 
 const API_BASE = '/api';
 
@@ -60,21 +60,6 @@ export class PacsApiService {
   static logout() {
     localStorage.removeItem('pacs_token');
     localStorage.removeItem('pacs_user');
-  }
-
-  static async switchRole(role: UserRole): Promise<{ user: User; token: string }> {
-    const res = await fetch(`${API_BASE}/auth/switch-role`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ role }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'Error al cambiar rol');
-    }
-    localStorage.setItem('pacs_token', data.token);
-    this.setCurrentUser(data.user);
-    return data;
   }
 
   // Dashboard Stats
@@ -215,7 +200,7 @@ export class PacsApiService {
 
   // Users
   static async getUsers(): Promise<User[]> {
-    const res = await fetch(`${API_BASE}/users`, { headers: authHeaders() });
+    const res = await fetch(`${API_BASE}/users`);
     if (!res.ok) throw new Error('Error al obtener lista de usuarios');
     return res.json();
   }
@@ -250,4 +235,27 @@ export class PacsApiService {
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || 'Error al eliminar usuario');
   }
+
+  // Export
+  static getPdfDownloadUrl(studyId: string): string {
+    return `${API_BASE}/studies/${studyId}/export/pdf`;
+  }
+
+  static getZipDownloadUrl(studyId: string): string {
+    return `${API_BASE}/studies/${studyId}/export/zip`;
+  }
+
+  static getDicomDownloadUrl(instanceId: string): string {
+    return `${API_BASE}/instances/${instanceId}/dicom`;
+  }
+
+  static triggerDownload(url: string, filename: string) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
 }
+

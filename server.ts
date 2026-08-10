@@ -7,6 +7,8 @@ import bcrypt from 'bcryptjs';
 import { pacsStore } from './server/store.js';
 import { OrthancClient } from './server/orthancClient.js';
 import { authenticate, authorize, generateToken, AuthPayload } from './server/authMiddleware.js';
+import { generateStudyPdf } from './server/pdfReport.js';
+import archiver from 'archiver';
 import * as http from 'http';
 import { Server } from 'socket.io';
 
@@ -84,33 +86,6 @@ async function startServer() {
     const users = await pacsStore.getUsers();
     const user = users.find(u => u.id === req.user?.userId) || users[0];
     res.json(user);
-  });
-
-  app.post('/api/auth/switch-role', authenticate, async (req, res) => {
-    const { role } = req.body;
-    const users = await pacsStore.getUsers();
-    const targetUser = users.find(u => u.role === role);
-
-    if (!targetUser) {
-      return res.status(404).json({ error: 'Rol no encontrado' });
-    }
-
-    const token = generateToken({
-      userId: targetUser.id,
-      userRole: targetUser.role,
-      userName: targetUser.name,
-    });
-
-    await pacsStore.addAuditLog({
-      userId: targetUser.id,
-      userName: targetUser.name,
-      userRole: targetUser.role,
-      action: 'LOGIN',
-      description: `Cambio de perfil/rol activo a ${role}`,
-      ipAddress: req.ip || '127.0.0.1',
-    });
-
-    res.json({ token, user: targetUser });
   });
 
   // Dashboard Stats
@@ -354,6 +329,103 @@ async function startServer() {
     } catch (err) {
       console.error('[Webhook] Error processing notification:', err);
       res.status(500).json({ error: 'Failed to process notification' });
+    }
+  });
+
+  // Export Endpoints
+  app.get('/api/studies/:id/export/pdf', authenticate, async (req, res) => {
+    try {
+      const study = await pacsStore.getStudyById(req.params.id);
+      if (!study) {
+        return res.status(404).json({ error: 'Estudio no encontrado' });
+      }
+
+      const pdfBuffer = await generateStudyPdf(study as any);
+
+      await pacsStore.addAuditLog({
+        userId: req.user!.userId,
+        userName: req.user!.userName,
+        userRole: req.user!.userRole,
+        action: 'STUDY_DOWNLOAD',
+        description: `Descarga de PDF del estudio ${study.accessionNumber} (${study.patientName})`,
+        ipAddress: req.ip || '127.0.0.1',
+      });
+
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="Informe_${study.accessionNumber}_${study.patientDocument}.pdf"`,
+        'Content-Length': pdfBuffer.length.toString(),
+      });
+      res.send(pdfBuffer);
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      res.status(500).json({ error: 'Error al generar el PDF del estudio' });
+    }
+  });
+
+  app.get('/api/studies/:id/export/zip', authenticate, async (req, res) => {
+    try {
+      const study = await pacsStore.getStudyById(req.params.id);
+      if (!study) {
+        return res.status(404).json({ error: 'Estudio no encontrado' });
+      }
+
+      await pacsStore.addAuditLog({
+        userId: req.user!.userId,
+        userName: req.user!.userName,
+        userRole: req.user!.userRole,
+        action: 'STUDY_DOWNLOAD',
+        description: `Descarga de ZIP DICOM del estudio ${study.accessionNumber} (${study.patientName})`,
+        ipAddress: req.ip || '127.0.0.1',
+      });
+
+      try {
+        const archive = await OrthancClient.downloadStudyArchive(study.id);
+        res.set({
+          'Content-Type': archive.contentType,
+          'Content-Disposition': `attachment; filename="DICOM_${study.accessionNumber}.zip"`,
+          'Content-Length': archive.data.byteLength.toString(),
+        });
+        res.send(Buffer.from(archive.data));
+      } catch {
+        const zip = archiver('zip', { zlib: { level: 5 } });
+        res.set({
+          'Content-Type': 'application/zip',
+          'Content-Disposition': `attachment; filename="DICOM_${study.accessionNumber}_meta.zip"`,
+        });
+
+        zip.pipe(res);
+
+        zip.append(JSON.stringify(study, null, 2), { name: `${study.accessionNumber}_metadata.json` });
+
+        for (const s of study.series) {
+          for (const inst of s.instances) {
+            zip.append(JSON.stringify(inst.tags, null, 2), {
+              name: `series_${s.seriesNumber}/${inst.id}_tags.json`,
+            });
+          }
+        }
+
+        await zip.finalize();
+      }
+    } catch (err) {
+      console.error('Error generating ZIP:', err);
+      res.status(500).json({ error: 'Error al generar el ZIP del estudio' });
+    }
+  });
+
+  app.get('/api/instances/:id/dicom', authenticate, async (req, res) => {
+    const { id } = req.params;
+    try {
+      const { contentType, data } = await OrthancClient.downloadBinary(`/instances/${id}/file`);
+      res.set({
+        'Content-Type': 'application/dicom',
+        'Content-Disposition': `attachment; filename="${id}.dcm"`,
+        'Content-Length': data.byteLength.toString(),
+      });
+      res.send(Buffer.from(data));
+    } catch {
+      res.status(502).json({ error: 'Error fetching DICOM from Orthanc' });
     }
   });
 

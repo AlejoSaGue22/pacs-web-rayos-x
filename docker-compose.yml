@@ -27,24 +27,24 @@ services:
       - BACKEND_WEBHOOK_SECRET=pacs-webhook-secret-2026
     restart: unless-stopped
 
-  app:
-    build: .
-    container_name: pacs-app
-    ports:
-      - "3000:3000"
-    environment:
-      DATABASE_URL: postgres://pacs:pacs_secret@postgres:5432/pacs_rayos_x
-      JWT_SECRET: pacs-rayos-x-mindray-2026-secret-key
-      ORTHANC_URL: http://orthanc:8042
-      ORTHANC_USER: orthanc
-      ORTHANC_PASS: pacs_secure_2026
-      WEBHOOK_SECRET: pacs-webhook-secret-2026
-      PORT: 3000
-      NODE_ENV: production
-    depends_on:
-      - postgres
-      - orthanc
-    restart: unless-stopped
+  # app:
+  #   build: .
+  #   container_name: pacs-app
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     DATABASE_URL: postgres://pacs:pacs_secret@postgres:5432/pacs_rayos_x
+  #     JWT_SECRET: pacs-rayos-x-mindray-2026-secret-key
+  #     ORTHANC_URL: http://orthanc:8042
+  #     ORTHANC_USER: orthanc
+  #     ORTHANC_PASS: pacs_secure_2026
+  #     WEBHOOK_SECRET: pacs-webhook-secret-2026
+  #     PORT: 3000
+  #     NODE_ENV: production
+  #   depends_on:
+  #     - postgres
+  #     - orthanc
+  #   restart: unless-stopped
 
 volumes:
   pgdata:

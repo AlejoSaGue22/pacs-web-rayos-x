@@ -12,7 +12,7 @@ import { UsersView } from './components/users/UsersView';
 import { ConfigView } from './components/config/ConfigView';
 import { OhifViewerModal } from './components/viewer/OhifViewerModal';
 import { DicomTagsModal } from './components/studies/DicomTagsModal';
-import { LoginModal } from './components/auth/LoginModal';
+import { LoginPage } from './components/auth/LoginPage';
 import { PacsApiService } from './services/pacsApi';
 import {
   Patient,
@@ -22,7 +22,6 @@ import {
   OrthancStatus,
   PACSConfig,
   StudyFilters,
-  UserRole,
   StudyStatus,
 } from './types/pacs';
 
@@ -30,7 +29,6 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [currentUser, setCurrentUser] = useState<User>(PacsApiService.getCurrentUser());
 
-  // Data States
   const [dashboardStats, setDashboardStats] = useState<any>(null);
   const [weeklyStats, setWeeklyStats] = useState<{ days: { day: string; estudios: number }[] } | null>(null);
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -40,7 +38,6 @@ export default function App() {
   const [pacsConfig, setPacsConfig] = useState<PACSConfig | null>(null);
   const [usersList, setUsersList] = useState<User[]>([]);
 
-  // Search & Filter state
   const [quickSearchTerm, setQuickSearchTerm] = useState('');
   const [studyFilters, setStudyFilters] = useState<StudyFilters>({
     searchTerm: '',
@@ -50,12 +47,9 @@ export default function App() {
     status: 'ALL',
   });
 
-  // Active Modals
   const [studyForViewer, setStudyForViewer] = useState<DicomStudy | null>(null);
   const [studyForTags, setStudyForTags] = useState<DicomStudy | null>(null);
-  const [showLoginModal, setShowLoginModal] = useState(false);
 
-  // Load Initial Data
   const loadData = async () => {
     if (!PacsApiService.isAuthenticated()) return;
     try {
@@ -84,17 +78,15 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!PacsApiService.isAuthenticated()) {
-      setShowLoginModal(true);
-    } else {
+    if (PacsApiService.isAuthenticated()) {
+      setCurrentUser(PacsApiService.getCurrentUser());
       loadData();
     }
   }, [studyFilters]);
 
-  // WebSockets for live Orthanc status updates
   useEffect(() => {
     const socket = io();
-    
+
     socket.on('orthanc_status_changed', (newStatus: Partial<OrthancStatus>) => {
       setOrthancStatus(prev => prev ? { ...prev, ...newStatus } : newStatus as OrthancStatus);
     });
@@ -104,7 +96,29 @@ export default function App() {
     };
   }, []);
 
-  // Handle Quick Search input
+  const handleLogin = () => {
+    setCurrentUser(PacsApiService.getCurrentUser());
+    loadData();
+  };
+
+  const handleLogout = () => {
+    PacsApiService.logout();
+    setCurrentUser(PacsApiService.getCurrentUser());
+    setDashboardStats(null);
+    setWeeklyStats(null);
+    setPatients([]);
+    setStudies([]);
+    setAuditLogs([]);
+    setOrthancStatus(null);
+    setPacsConfig(null);
+    setUsersList([]);
+    setActiveTab('dashboard');
+  };
+
+  if (!PacsApiService.isAuthenticated()) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
   const handleQuickSearch = (term: string) => {
     setQuickSearchTerm(term);
     setStudyFilters(prev => ({ ...prev, searchTerm: term }));
@@ -113,7 +127,6 @@ export default function App() {
     }
   };
 
-  // Patients Actions
   const handleCreatePatient = async (data: any) => {
     await PacsApiService.createPatient(data);
     loadData();
@@ -129,7 +142,6 @@ export default function App() {
     loadData();
   };
 
-  // Studies Actions
   const handleUpdateStudyStatus = async (studyId: string, status: StudyStatus) => {
     await PacsApiService.updateStudyStatus(studyId, status);
     loadData();
@@ -138,40 +150,26 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Orthanc Actions
   const handleSyncOrthanc = async () => {
     setIsSyncing(true);
-    setToastMessage("Iniciando sincronización manual...");
+    setToastMessage('Iniciando sincronización manual...');
     try {
       await PacsApiService.syncOrthanc();
       await loadData();
-      setToastMessage("Sincronización completada exitosamente.");
-    } catch (error) {
-      setToastMessage("Error al sincronizar con Orthanc.");
+      setToastMessage('Sincronización completada exitosamente.');
+    } catch {
+      setToastMessage('Error al sincronizar con Orthanc.');
     } finally {
       setIsSyncing(false);
       setTimeout(() => setToastMessage(null), 3000);
     }
   };
 
-  // Config Actions
   const handleSaveConfig = async (newConfig: Partial<PACSConfig>) => {
     await PacsApiService.updatePacsConfig(newConfig);
     loadData();
   };
 
-  // Role Switch
-  const handleSwitchRole = async (role: UserRole) => {
-    try {
-      const result = await PacsApiService.switchRole(role);
-      setCurrentUser(result.user);
-      loadData();
-    } catch (e) {
-      console.error('Error cambiando rol:', e);
-    }
-  };
-
-  // Users CRUD
   const handleCreateUser = async (data: { name: string; email: string; role: string; password: string }) => {
     await PacsApiService.createUser(data);
     loadData();
@@ -187,29 +185,20 @@ export default function App() {
     loadData();
   };
 
-  const handleLogin = async (role: UserRole) => {
-    const user = PacsApiService.getCurrentUser();
-    setCurrentUser(user);
-    setShowLoginModal(false);
-    loadData();
-  };
-
   return (
     <div className="h-screen bg-[#F1F5F9] text-slate-800 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
-      {/* Top Application Header */}
       <Header
         currentUser={currentUser}
         orthancOnline={orthancStatus?.online ?? true}
         pacsConfig={pacsConfig}
+        isSyncing={isSyncing}
         onSyncOrthanc={handleSyncOrthanc}
-        onOpenLoginModal={() => setShowLoginModal(true)}
+        onLogout={handleLogout}
         onQuickSearch={handleQuickSearch}
         quickSearchTerm={quickSearchTerm}
       />
 
-      {/* Main Workspace Layout */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Navigation Sidebar */}
         <Sidebar
           activeTab={activeTab}
           onTabChange={tab => setActiveTab(tab)}
@@ -218,7 +207,6 @@ export default function App() {
           remoteAETitle={pacsConfig?.remoteAETitle || ''}
         />
 
-        {/* Primary View Content Area */}
         <main className="flex-1 overflow-y-auto p-6 bg-[#F1F5F9]">
           {activeTab === 'dashboard' && dashboardStats && (
             <DashboardView
@@ -276,7 +264,6 @@ export default function App() {
             <UsersView
               users={usersList}
               activeUser={currentUser}
-              onSwitchRole={handleSwitchRole}
               onCreateUser={handleCreateUser}
               onUpdateUser={handleUpdateUser}
               onDeleteUser={handleDeleteUser}
@@ -292,7 +279,6 @@ export default function App() {
         </main>
       </div>
 
-      {/* OHIF Viewer Modal */}
       {studyForViewer && (
         <OhifViewerModal
           study={studyForViewer}
@@ -300,7 +286,6 @@ export default function App() {
         />
       )}
 
-      {/* DICOM Tags Modal */}
       {studyForTags && (
         <DicomTagsModal
           study={studyForTags}
@@ -308,16 +293,6 @@ export default function App() {
         />
       )}
 
-      {/* Login / Role Switch Modal */}
-      {showLoginModal && (
-        <LoginModal
-          onLogin={handleLogin}
-          onSwitchRole={handleSwitchRole}
-          onClose={() => setShowLoginModal(false)}
-        />
-      )}
-
-      {/* Global Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-4 py-3 rounded-lg shadow-2xl z-50 flex items-center gap-3 border border-slate-700 animate-in fade-in slide-in-from-bottom-4">
           <CheckCircle className="w-5 h-5 text-emerald-400" />

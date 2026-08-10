@@ -1,21 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   FolderKanban,
   Search,
-  Filter,
+  Calendar,
   Eye,
   FileText,
+  FileDown,
   Download,
-  Calendar,
-  CheckCircle,
-  Clock,
-  MoreVertical,
-  SlidersHorizontal,
-  ChevronDown,
+  Archive,
+  FileOutput,
   Layers,
-  Sparkles,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { DicomStudy, StudyFilters, StudyStatus } from '../../types/pacs';
+import { PacsApiService } from '../../services/pacsApi';
 
 interface StudiesViewProps {
   studies: DicomStudy[];
@@ -35,16 +33,42 @@ export const StudiesView: React.FC<StudiesViewProps> = ({
   onUpdateStatus,
 }) => {
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
-  const handleDownloadDicom = (study: DicomStudy) => {
-    const jsonStr = JSON.stringify(study, null, 2);
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `DICOM_${study.accessionNumber}_${study.patientDocument}.dcm`;
-    a.click();
-    URL.revokeObjectURL(url);
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setActiveMenuId(null);
+      }
+    }
+    if (activeMenuId) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [activeMenuId]);
+
+  const handleDownloadPdf = (study: DicomStudy) => {
+    PacsApiService.triggerDownload(
+      PacsApiService.getPdfDownloadUrl(study.id),
+      `Informe_${study.accessionNumber}_${study.patientDocument}.pdf`
+    );
+    setActiveMenuId(null);
+  };
+
+  const handleDownloadZip = (study: DicomStudy) => {
+    PacsApiService.triggerDownload(
+      PacsApiService.getZipDownloadUrl(study.id),
+      `DICOM_${study.accessionNumber}.zip`
+    );
+    setActiveMenuId(null);
+  };
+
+  const handleDownloadDicom = (instanceId: string, study: DicomStudy) => {
+    PacsApiService.triggerDownload(
+      PacsApiService.getDicomDownloadUrl(instanceId),
+      `DICOM_${study.accessionNumber}.dcm`
+    );
+    setActiveMenuId(null);
   };
 
   return (
@@ -225,13 +249,43 @@ export const StudiesView: React.FC<StudiesViewProps> = ({
                         <FileText className="w-4 h-4" />
                       </button>
 
-                      <button
-                        onClick={() => handleDownloadDicom(study)}
-                        title="Descargar Archivo .DCM"
-                        className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors"
-                      >
-                        <Download className="w-4 h-4" />
-                      </button>
+                      <div className="relative">
+                        <button
+                          onClick={() => setActiveMenuId(activeMenuId === study.id ? null : study.id)}
+                          title="Exportar estudio"
+                          className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors flex items-center gap-0.5"
+                        >
+                          <FileDown className="w-4 h-4" />
+                        </button>
+
+                        {activeMenuId === study.id && (
+                          <div ref={menuRef} className="absolute right-0 top-full mt-1 w-56 bg-white border border-slate-200 rounded-lg shadow-lg z-50 py-1 text-xs">
+                            <button
+                              onClick={() => handleDownloadPdf(study)}
+                              className="w-full text-left px-3 py-2 hover:bg-blue-50 flex items-center gap-2 text-slate-700 transition-colors"
+                            >
+                              <FileOutput className="w-4 h-4 text-rose-500" />
+                              <span>Descargar PDF (Informe)</span>
+                            </button>
+                            <button
+                              onClick={() => handleDownloadZip(study)}
+                              className="w-full text-left px-3 py-2 hover:bg-blue-50 flex items-center gap-2 text-slate-700 transition-colors"
+                            >
+                              <Archive className="w-4 h-4 text-amber-500" />
+                              <span>Descargar ZIP (DICOM)</span>
+                            </button>
+                            {study.series[0]?.instances[0] && (
+                              <button
+                                onClick={() => handleDownloadDicom(study.series[0].instances[0].id, study)}
+                                className="w-full text-left px-3 py-2 hover:bg-blue-50 flex items-center gap-2 text-slate-700 transition-colors"
+                              >
+                                <Download className="w-4 h-4 text-blue-500" />
+                                <span>Descargar DICOM (.dcm)</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </td>
                 </tr>

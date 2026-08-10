@@ -100,4 +100,16 @@ export const OrthancClient = {
     if (!res.ok) throw new Error(`Orthanc upload DICOM: ${res.status} ${res.statusText}`);
     return res.json();
   },
+
+  async downloadBinary(path: string): Promise<{ contentType: string; data: ArrayBuffer }> {
+    const res = await fetch(`${ORTHANC_URL}${path}`, { headers: authHeaders() });
+    if (!res.ok) throw new Error(`Orthanc download ${path}: ${res.status} ${res.statusText}`);
+    const contentType = res.headers.get('content-type') || 'application/octet-stream';
+    const data = await res.arrayBuffer();
+    return { contentType, data };
+  },
+
+  async downloadStudyArchive(studyId: string): Promise<{ contentType: string; data: ArrayBuffer }> {
+    return this.downloadBinary(`/studies/${studyId}/archive`);
+  },
 };

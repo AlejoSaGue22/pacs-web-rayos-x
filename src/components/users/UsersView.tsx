@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
-import { Shield, User, Check, X, Lock, KeyRound, Plus, Pencil, Trash2, AlertCircle } from 'lucide-react';
+import { Shield, User, Check, X, KeyRound, Plus, Pencil, Trash2, AlertCircle } from 'lucide-react';
 import { User as UserType, UserRole } from '../../types/pacs';
 
 interface UsersViewProps {
   users: UserType[];
   activeUser: UserType;
-  onSwitchRole: (role: UserRole) => void;
   onCreateUser: (data: { name: string; email: string; role: string; password: string }) => Promise<void>;
   onUpdateUser: (id: string, data: { name?: string; email?: string; role?: string; password?: string }) => Promise<void>;
   onDeleteUser: (id: string) => Promise<void>;
@@ -16,7 +15,6 @@ const ROLES: UserRole[] = ['Admin', 'Radiologo', 'Tecnico', 'Consulta'];
 export const UsersView: React.FC<UsersViewProps> = ({
   users,
   activeUser,
-  onSwitchRole,
   onCreateUser,
   onUpdateUser,
   onDeleteUser,
@@ -30,9 +28,9 @@ export const UsersView: React.FC<UsersViewProps> = ({
   const permissionsMatrix = [
     { feature: 'Crear / Editar Pacientes', admin: true, radiologo: true, tecnico: true, consulta: false },
     { feature: 'Eliminación Lógica de Pacientes', admin: true, radiologo: false, tecnico: false, consulta: false },
-    { feature: 'Visualizar Estudios en OHIF Viewer', admin: true, radiologo: true, tecnico: true, consulta: true },
+    { feature: 'Visualizar Estudios en Visor DICOM', admin: true, radiologo: true, tecnico: true, consulta: true },
     { feature: 'Editar Estado del Estudio (Informe)', admin: true, radiologo: true, tecnico: false, consulta: false },
-    { feature: 'Descargar Archivos DICOM .DCM', admin: true, radiologo: true, tecnico: true, consulta: false },
+    { feature: 'Descargar Archivos DICOM / PDF', admin: true, radiologo: true, tecnico: true, consulta: false },
     { feature: 'Ejecutar Sincronización Orthanc Manual', admin: true, radiologo: true, tecnico: true, consulta: false },
     { feature: 'Ver Bitácora de Auditoría', admin: true, radiologo: true, tecnico: false, consulta: false },
     { feature: 'Modificar Configuración PACS & AETitles', admin: true, radiologo: false, tecnico: false, consulta: false },
@@ -83,6 +81,10 @@ export const UsersView: React.FC<UsersViewProps> = ({
   };
 
   const handleDelete = async (user: UserType) => {
+    if (user.id === activeUser.id) {
+      alert('No puede eliminar su propio usuario.');
+      return;
+    }
     if (!confirm(`¿Está seguro de eliminar al usuario ${user.name}?`)) return;
     try {
       await onDeleteUser(user.id);
@@ -93,7 +95,6 @@ export const UsersView: React.FC<UsersViewProps> = ({
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
         <div>
           <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
@@ -101,7 +102,7 @@ export const UsersView: React.FC<UsersViewProps> = ({
             Control de Usuarios y Matriz de Permisos (RBAC)
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Asignación de perfiles para Administrador, Radiólogo, Técnico de Rayos X y Personal de Consulta
+            Gestión de usuarios del sistema. Cada cuenta tiene un único rol asignado por el administrador.
           </p>
         </div>
         <button
@@ -113,15 +114,14 @@ export const UsersView: React.FC<UsersViewProps> = ({
         </button>
       </div>
 
-      {/* Users List Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {users.map(u => {
-          const isActive = u.role === activeUser.role;
+          const isSelf = u.id === activeUser.id;
           return (
             <div
               key={u.id}
               className={`p-4 rounded-xl border transition-all space-y-3 ${
-                isActive
+                isSelf
                   ? 'bg-white border-blue-500 shadow-xs ring-1 ring-blue-500'
                   : 'bg-white border-slate-200 shadow-xs'
               }`}
@@ -139,23 +139,21 @@ export const UsersView: React.FC<UsersViewProps> = ({
               </div>
 
               <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-bold text-[10px] border border-blue-200">
+                <span className={`px-2 py-0.5 rounded font-bold text-[10px] border ${
+                  u.role === 'Admin' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                  u.role === 'Radiologo' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                  u.role === 'Tecnico' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                  'bg-slate-50 text-slate-700 border-slate-200'
+                }`}>
                   {u.role}
                 </span>
 
                 <div className="flex items-center gap-1">
-                  {isActive ? (
+                  {isSelf && (
                     <span className="text-[10px] text-emerald-700 font-bold flex items-center gap-1">
                       <Check className="w-3.5 h-3.5" />
-                      Activo
+                      Tú
                     </span>
-                  ) : (
-                    <button
-                      onClick={() => onSwitchRole(u.role)}
-                      className="text-[10px] font-semibold text-slate-500 hover:text-blue-600 transition-colors"
-                    >
-                      Probar
-                    </button>
                   )}
 
                   <button
@@ -180,7 +178,6 @@ export const UsersView: React.FC<UsersViewProps> = ({
         })}
       </div>
 
-      {/* Permissions Matrix Table */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs p-5 space-y-4">
         <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
           <KeyRound className="w-4 h-4 text-blue-600" />
@@ -221,7 +218,6 @@ export const UsersView: React.FC<UsersViewProps> = ({
         </div>
       </div>
 
-      {/* User Form Modal */}
       {showForm && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 rounded-xl shadow-xl w-full max-w-md overflow-hidden text-slate-800 font-sans">
