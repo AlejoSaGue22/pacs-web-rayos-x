@@ -20,7 +20,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { DicomStudy, DicomSeries, DicomInstance } from '../../types/pacs';
-import { DicomCanvasRenderer } from './DicomCanvasRenderer';
+
 import { CornerstoneViewport } from './CornerstoneViewport';
 import {
   setToolActive,

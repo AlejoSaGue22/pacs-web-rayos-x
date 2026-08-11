@@ -200,7 +200,7 @@ export class PacsApiService {
 
   // Users
   static async getUsers(): Promise<User[]> {
-    const res = await fetch(`${API_BASE}/users`);
+    const res = await fetch(`${API_BASE}/users`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error al obtener lista de usuarios');
     return res.json();
   }

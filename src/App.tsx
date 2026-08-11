@@ -50,6 +50,9 @@ export default function App() {
   const [studyForViewer, setStudyForViewer] = useState<DicomStudy | null>(null);
   const [studyForTags, setStudyForTags] = useState<DicomStudy | null>(null);
 
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+
   const loadData = async () => {
     if (!PacsApiService.isAuthenticated()) return;
     try {
@@ -72,8 +75,12 @@ export default function App() {
       setOrthancStatus(orthanc);
       setPacsConfig(config);
       setUsersList(users);
-    } catch (e) {
+    } catch (e: any) {
       console.error('Error cargando datos PACS:', e);
+      setToastMessage(e.message || 'Error de conexión. Sesión terminada.');
+      setTimeout(() => {
+        handleLogout();
+      }, 2500);
     }
   };
 
@@ -146,9 +153,6 @@ export default function App() {
     await PacsApiService.updateStudyStatus(studyId, status);
     loadData();
   };
-
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
 
   const handleSyncOrthanc = async () => {
     setIsSyncing(true);

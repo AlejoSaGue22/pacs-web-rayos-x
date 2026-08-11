@@ -8,7 +8,9 @@ import { pacsStore } from './server/store.js';
 import { OrthancClient } from './server/orthancClient.js';
 import { authenticate, authorize, generateToken, AuthPayload } from './server/authMiddleware.js';
 import { generateStudyPdf } from './server/pdfReport.js';
-import archiver from 'archiver';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const archiver = require('archiver');
 import * as http from 'http';
 import { Server } from 'socket.io';
 
