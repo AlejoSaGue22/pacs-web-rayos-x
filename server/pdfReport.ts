@@ -83,7 +83,7 @@ export function generateStudyPdf(study: StudyData): Promise<Buffer> {
     const chunks: Buffer[] = [];
     const doc = new PDFDocument({
       size: 'A4',
-      margins: { top: 50, bottom: 50, left: 50, right: 50 },
+      margins: { top: 50, bottom: 60, left: 50, right: 50 },
       info: {
         Title: `Informe - ${study.accessionNumber}`,
         Author: study.institutionName,
@@ -261,10 +261,18 @@ export function generateStudyPdf(study: StudyData): Promise<Buffer> {
 
     // ── FOOTER ──
     const footerY = doc.page.height - 50;
+    
+    // Hack para PDFKit: desactivar margen inferior para dibujar en el footer sin saltar de página
+    const originalBottom = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+
     doc.moveTo(col1, footerY).lineTo(col1 + pageWidth, footerY).strokeColor('#E5E7EB').stroke();
     doc.fontSize(7).font('Helvetica').fillColor('#9CA3AF')
-      .text(`Generado: ${new Date().toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`, col1, footerY + 8, { width: pageWidth / 2, align: 'left' });
-    doc.text(`Mini PACS Web - ${study.institutionName}`, col1 + pageWidth / 2, footerY + 8, { width: pageWidth / 2, align: 'right' });
+      .text(`Generado: ${new Date().toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`, col1, footerY + 8, { width: pageWidth / 2, align: 'left', lineBreak: false });
+    doc.text(`Mini PACS Web - ${study.institutionName}`, col1 + pageWidth / 2, footerY + 8, { width: pageWidth / 2, align: 'right', lineBreak: false });
+
+    // Restaurar margen inferior
+    doc.page.margins.bottom = originalBottom;
 
     doc.end();
   });

@@ -14,16 +14,7 @@ import { OhifViewerModal } from './components/viewer/OhifViewerModal';
 import { DicomTagsModal } from './components/studies/DicomTagsModal';
 import { LoginPage } from './components/auth/LoginPage';
 import { PacsApiService } from './services/pacsApi';
-import {
-  Patient,
-  DicomStudy,
-  User,
-  AuditLog,
-  OrthancStatus,
-  PACSConfig,
-  StudyFilters,
-  StudyStatus,
-} from './types/pacs';
+import { DicomStudy, User, OrthancStatus, PACSConfig } from './types/pacs';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -31,21 +22,12 @@ export default function App() {
 
   const [dashboardStats, setDashboardStats] = useState<any>(null);
   const [weeklyStats, setWeeklyStats] = useState<{ days: { day: string; estudios: number }[] } | null>(null);
-  const [patients, setPatients] = useState<Patient[]>([]);
-  const [studies, setStudies] = useState<DicomStudy[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [orthancStatus, setOrthancStatus] = useState<OrthancStatus | null>(null);
   const [pacsConfig, setPacsConfig] = useState<PACSConfig | null>(null);
   const [usersList, setUsersList] = useState<User[]>([]);
 
   const [quickSearchTerm, setQuickSearchTerm] = useState('');
-  const [studyFilters, setStudyFilters] = useState<StudyFilters>({
-    searchTerm: '',
-    modality: 'ALL',
-    dateFrom: '',
-    dateTo: '',
-    status: 'ALL',
-  });
+  const [quickSearchKey, setQuickSearchKey] = useState(0);
 
   const [studyForViewer, setStudyForViewer] = useState<DicomStudy | null>(null);
   const [studyForTags, setStudyForTags] = useState<DicomStudy | null>(null);
@@ -53,15 +35,21 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => {
+        setToastMessage(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
+
   const loadData = async () => {
     if (!PacsApiService.isAuthenticated()) return;
     try {
-      const [stats, weekly, pats, stds, logs, orthanc, config, users] = await Promise.all([
+      const [stats, weekly, orthanc, config, users] = await Promise.all([
         PacsApiService.getDashboardStats(),
         PacsApiService.getWeeklyStats(),
-        PacsApiService.getPatients(),
-        PacsApiService.getStudies(studyFilters),
-        PacsApiService.getAuditLogs(),
         PacsApiService.getOrthancStatus(),
         PacsApiService.getPacsConfig(),
         PacsApiService.getUsers(),
@@ -69,9 +57,6 @@ export default function App() {
 
       setDashboardStats(stats);
       setWeeklyStats(weekly);
-      setPatients(pats);
-      setStudies(stds);
-      setAuditLogs(logs);
       setOrthancStatus(orthanc);
       setPacsConfig(config);
       setUsersList(users);
@@ -89,7 +74,7 @@ export default function App() {
       setCurrentUser(PacsApiService.getCurrentUser());
       loadData();
     }
-  }, [studyFilters]);
+  }, []);
 
   useEffect(() => {
     const socket = io();
@@ -113,9 +98,6 @@ export default function App() {
     setCurrentUser(PacsApiService.getCurrentUser());
     setDashboardStats(null);
     setWeeklyStats(null);
-    setPatients([]);
-    setStudies([]);
-    setAuditLogs([]);
     setOrthancStatus(null);
     setPacsConfig(null);
     setUsersList([]);
@@ -128,30 +110,10 @@ export default function App() {
 
   const handleQuickSearch = (term: string) => {
     setQuickSearchTerm(term);
-    setStudyFilters(prev => ({ ...prev, searchTerm: term }));
+    setQuickSearchKey(k => k + 1);
     if (activeTab !== 'studies' && activeTab !== 'patients') {
       setActiveTab('studies');
     }
-  };
-
-  const handleCreatePatient = async (data: any) => {
-    await PacsApiService.createPatient(data);
-    loadData();
-  };
-
-  const handleUpdatePatient = async (id: string, updates: any) => {
-    await PacsApiService.updatePatient(id, updates);
-    loadData();
-  };
-
-  const handleDeletePatient = async (id: string) => {
-    await PacsApiService.deletePatient(id);
-    loadData();
-  };
-
-  const handleUpdateStudyStatus = async (studyId: string, status: StudyStatus) => {
-    await PacsApiService.updateStudyStatus(studyId, status);
-    loadData();
   };
 
   const handleSyncOrthanc = async () => {
@@ -225,23 +187,16 @@ export default function App() {
 
           {activeTab === 'patients' && (
             <PatientsView
-              patients={patients}
-              studies={studies}
-              onCreatePatient={handleCreatePatient}
-              onUpdatePatient={handleUpdatePatient}
-              onDeletePatient={handleDeletePatient}
               onOpenStudyViewer={study => setStudyForViewer(study)}
             />
           )}
 
           {activeTab === 'studies' && (
             <StudiesView
-              studies={studies}
-              filters={studyFilters}
-              onFilterChange={f => setStudyFilters(f)}
+              quickSearchTerm={quickSearchTerm}
+              quickSearchKey={quickSearchKey}
               onOpenViewer={study => setStudyForViewer(study)}
               onOpenTagsModal={study => setStudyForTags(study)}
-              onUpdateStatus={handleUpdateStudyStatus}
             />
           )}
 
@@ -256,12 +211,7 @@ export default function App() {
           )}
 
           {activeTab === 'audit' && (
-            <AuditView
-              logs={auditLogs}
-              onFilterChange={(action, search) => {
-                PacsApiService.getAuditLogs(action, search).then(res => setAuditLogs(res));
-              }}
-            />
+            <AuditView />
           )}
 
           {activeTab === 'users' && (

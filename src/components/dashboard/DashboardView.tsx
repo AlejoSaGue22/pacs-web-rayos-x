@@ -103,7 +103,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* Metric Cards Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-1">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Patients</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Pacientes</p>
           <h3 className="text-2xl font-bold text-slate-800">{stats.totalPatients}</h3>
           <div className="mt-1 text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
             <CheckCircle className="w-3 h-3" />
@@ -112,7 +112,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-1">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Studies (Today)</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Estudios (Hoy)</p>
           <h3 className="text-2xl font-bold text-slate-800">{stats.studiesToday}</h3>
           <div className="mt-1 text-[10px] text-blue-600 font-semibold">
             Estudios de imagen digital
@@ -120,7 +120,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-1">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Studies (This Month)</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Estudios (Mes)</p>
           <h3 className="text-2xl font-bold text-slate-800">{stats.studiesMonth}</h3>
           <div className="mt-1 text-[10px] text-amber-600 font-semibold">
             {indexedPercent}% Indexado en Orthanc
@@ -128,7 +128,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-1">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Storage Utilization</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Almacenamiento Utilizado</p>
           <h3 className="text-2xl font-bold text-slate-800">{stats.totalStorageMb.toFixed(1)} MB</h3>
           <div className="w-full bg-slate-100 h-1 rounded-full mt-2 overflow-hidden">
             <div className="bg-blue-600 h-1 rounded-full" style={{ width: `${storagePercent}%` }}></div>

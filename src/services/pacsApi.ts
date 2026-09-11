@@ -1,4 +1,5 @@
-import { Patient, DicomStudy, User, AuditLog, OrthancStatus, PACSConfig, StudyFilters } from '../types/pacs';
+import { Patient, DicomStudy, User, AuditLog, OrthancStatus, PACSConfig } from '../types/pacs';
+import { PaginatedResult, PatientQuery, StudyListQuery, AuditLogQuery } from '../types/pagination';
 
 const API_BASE = '/api';
 
@@ -9,6 +10,17 @@ function authHeaders(): Record<string, string> {
     headers['Authorization'] = `Bearer ${token}`;
   }
   return headers;
+}
+
+function buildQueryString(params: Record<string, any>): string {
+  const sp = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '' && String(v) !== 'NaN') {
+      sp.append(k, String(v));
+    }
+  });
+  const qs = sp.toString();
+  return qs ? `?${qs}` : '';
 }
 
 export class PacsApiService {
@@ -76,9 +88,8 @@ export class PacsApiService {
   }
 
   // Patients
-  static async getPatients(search?: string): Promise<Patient[]> {
-    const url = search ? `${API_BASE}/patients?search=${encodeURIComponent(search)}` : `${API_BASE}/patients`;
-    const res = await fetch(url, { headers: authHeaders() });
+  static async getPatients(query?: PatientQuery): Promise<PaginatedResult<Patient>> {
+    const res = await fetch(`${API_BASE}/patients${buildQueryString(query || {})}`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error al cargar pacientes');
     return res.json();
   }
@@ -86,6 +97,12 @@ export class PacsApiService {
   static async getPatientById(id: string): Promise<Patient & { studies: DicomStudy[] }> {
     const res = await fetch(`${API_BASE}/patients/${id}`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Paciente no encontrado');
+    return res.json();
+  }
+
+  static async getPatientStudies(patientId: string): Promise<DicomStudy[]> {
+    const res = await fetch(`${API_BASE}/patients/${patientId}/studies`, { headers: authHeaders() });
+    if (!res.ok) throw new Error('Error al cargar estudios del paciente');
     return res.json();
   }
 
@@ -119,15 +136,8 @@ export class PacsApiService {
   }
 
   // Studies
-  static async getStudies(filters?: StudyFilters): Promise<DicomStudy[]> {
-    const params = new URLSearchParams();
-    if (filters?.searchTerm) params.append('searchTerm', filters.searchTerm);
-    if (filters?.modality && filters.modality !== 'ALL') params.append('modality', filters.modality);
-    if (filters?.dateFrom) params.append('dateFrom', filters.dateFrom);
-    if (filters?.dateTo) params.append('dateTo', filters.dateTo);
-    if (filters?.status && filters.status !== 'ALL') params.append('status', filters.status);
-
-    const res = await fetch(`${API_BASE}/studies?${params.toString()}`, { headers: authHeaders() });
+  static async getStudies(query?: StudyListQuery): Promise<PaginatedResult<DicomStudy>> {
+    const res = await fetch(`${API_BASE}/studies${buildQueryString(query || {})}`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error al obtener estudios DICOM');
     return res.json();
   }
@@ -171,12 +181,8 @@ export class PacsApiService {
   }
 
   // Audit Logs
-  static async getAuditLogs(actionFilter?: string, search?: string): Promise<AuditLog[]> {
-    const params = new URLSearchParams();
-    if (actionFilter && actionFilter !== 'ALL') params.append('action', actionFilter);
-    if (search) params.append('search', search);
-
-    const res = await fetch(`${API_BASE}/audit?${params.toString()}`, { headers: authHeaders() });
+  static async getAuditLogs(query?: AuditLogQuery): Promise<PaginatedResult<AuditLog>> {
+    const res = await fetch(`${API_BASE}/audit${buildQueryString(query || {})}`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error consultando bitácora de auditoría');
     return res.json();
   }
@@ -249,13 +255,24 @@ export class PacsApiService {
     return `${API_BASE}/instances/${instanceId}/dicom`;
   }
 
-  static triggerDownload(url: string, filename: string) {
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  static async triggerDownload(url: string, filename: string) {
+    try {
+      const res = await fetch(url, { headers: authHeaders() });
+      if (!res.ok) throw new Error('Error en la descarga');
+      const blob = await res.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      setTimeout(() => window.URL.revokeObjectURL(objectUrl), 10000);
+    } catch (e) {
+      console.error('Error al descargar archivo:', e);
+      alert('No se pudo descargar el archivo.');
+    }
   }
 }
-

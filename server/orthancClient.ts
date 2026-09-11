@@ -112,4 +112,19 @@ export const OrthancClient = {
   async downloadStudyArchive(studyId: string): Promise<{ contentType: string; data: ArrayBuffer }> {
     return this.downloadBinary(`/studies/${studyId}/archive`);
   },
+
+  async streamStudyArchive(studyId: string, res: any) {
+    const response = await fetch(`${ORTHANC_URL}/studies/${studyId}/archive`, { headers: authHeaders() });
+    if (!response.ok) throw new Error(`Orthanc stream archive: ${response.status}`);
+    const contentType = response.headers.get('content-type') || 'application/zip';
+    res.set('Content-Type', contentType);
+    
+    // In Node 18+ response.body is ReadableStream
+    const { Readable } = require('stream');
+    if (response.body) {
+      Readable.fromWeb(response.body as any).pipe(res);
+    } else {
+      res.end();
+    }
+  },
 };

@@ -1,14 +1,15 @@
 import { PrismaClient } from '../src/generated/prisma/index.js';
 import { OrthancClient } from './orthancClient.js';
+import { parsePagination, buildOrderBy, buildPaginatedResult } from './pagination.js';
 
-const prisma = new PrismaClient();
+export const prisma = new PrismaClient();
 
 class PacsStore {
   // --- Patients ---
-  async getPatients(search?: string) {
+  async getPatients(query?: { search?: string; page?: number; pageSize?: number; sortBy?: string; sortOrder?: string }) {
     const where: any = { isDeleted: false };
-    if (search && search.trim() !== '') {
-      const term = search.toLowerCase().trim();
+    if (query?.search && query.search.trim() !== '') {
+      const term = query.search.toLowerCase().trim();
       where.OR = [
         { firstName: { contains: term, mode: 'insensitive' } },
         { lastName: { contains: term, mode: 'insensitive' } },
@@ -16,7 +17,24 @@ class PacsStore {
         { email: { contains: term, mode: 'insensitive' } },
       ];
     }
-    return prisma.patient.findMany({ where, orderBy: { createdAt: 'desc' } });
+
+    const { page, pageSize, skip, take } = parsePagination(query || {});
+    const orderBy = buildOrderBy('patient', query?.sortBy, query?.sortOrder);
+
+    const [items, total] = await prisma.$transaction([
+      prisma.patient.findMany({ where, skip, take, orderBy, include: { _count: { select: { studies: true } } } }),
+      prisma.patient.count({ where }),
+    ]);
+
+    return buildPaginatedResult(items, total, page, pageSize);
+  }
+
+  async getStudiesByPatientDocument(documentNumber: string) {
+    return prisma.study.findMany({
+      where: { patientDocument: documentNumber },
+      include: { series: { include: { instances: true } } },
+      orderBy: [{ studyDate: 'desc' }, { studyTime: 'desc' }],
+    });
   }
 
   async getPatientById(id: string) {
@@ -98,12 +116,12 @@ class PacsStore {
   }
 
   // --- Studies ---
-  async getStudies(filters?: { searchTerm?: string; modality?: string; dateFrom?: string; dateTo?: string; status?: string }) {
+  async getStudies(query?: { searchTerm?: string; modality?: string; dateFrom?: string; dateTo?: string; status?: string; page?: number; pageSize?: number; sortBy?: string; sortOrder?: string }) {
     const where: any = {};
 
-    if (filters) {
-      if (filters.searchTerm) {
-        const term = filters.searchTerm.toLowerCase().trim();
+    if (query) {
+      if (query.searchTerm) {
+        const term = query.searchTerm.toLowerCase().trim();
         where.OR = [
           { patientName: { contains: term, mode: 'insensitive' } },
           { patientDocument: { contains: term } },
@@ -112,27 +130,29 @@ class PacsStore {
           { id: { contains: term, mode: 'insensitive' } },
         ];
       }
-      if (filters.modality && filters.modality !== 'ALL') {
-        where.modality = filters.modality;
+      if (query.modality && query.modality !== 'ALL') {
+        where.modality = query.modality;
       }
-      if (filters.status && filters.status !== 'ALL') {
-        where.status = filters.status;
+      if (query.status && query.status !== 'ALL') {
+        where.status = query.status;
       }
-      if (filters.dateFrom) {
-        where.studyDate = { ...(where.studyDate || {}), gte: filters.dateFrom };
+      if (query.dateFrom) {
+        where.studyDate = { ...(where.studyDate || {}), gte: query.dateFrom };
       }
-      if (filters.dateTo) {
-        where.studyDate = { ...(where.studyDate || {}), lte: filters.dateTo };
+      if (query.dateTo) {
+        where.studyDate = { ...(where.studyDate || {}), lte: query.dateTo };
       }
     }
 
-    const studies = await prisma.study.findMany({
-      where,
-      include: { series: { include: { instances: true } } },
-      orderBy: [{ studyDate: 'desc' }, { studyTime: 'desc' }],
-    });
+    const { page, pageSize, skip, take } = parsePagination(query || {});
+    const orderBy = buildOrderBy('study', query?.sortBy, query?.sortOrder);
 
-    return studies;
+    const [items, total] = await prisma.$transaction([
+      prisma.study.findMany({ where, skip, take, orderBy, include: { series: { include: { instances: true } } } }),
+      prisma.study.count({ where }),
+    ]);
+
+    return buildPaginatedResult(items, total, page, pageSize);
   }
 
   async getStudyById(id: string) {
@@ -372,14 +392,14 @@ class PacsStore {
   }
 
   // --- Audit Logs ---
-  async getAuditLogs(actionFilter?: string, search?: string) {
+  async getAuditLogs(query?: { actionFilter?: string; search?: string; page?: number; pageSize?: number; sortBy?: string; sortOrder?: string }) {
     const where: any = {};
 
-    if (actionFilter && actionFilter !== 'ALL') {
-      where.action = actionFilter;
+    if (query?.actionFilter && query.actionFilter !== 'ALL') {
+      where.action = query.actionFilter;
     }
-    if (search && search.trim() !== '') {
-      const term = search.toLowerCase().trim();
+    if (query?.search && query.search.trim() !== '') {
+      const term = query.search.toLowerCase().trim();
       where.OR = [
         { userName: { contains: term, mode: 'insensitive' } },
         { description: { contains: term, mode: 'insensitive' } },
@@ -387,10 +407,15 @@ class PacsStore {
       ];
     }
 
-    return prisma.auditLog.findMany({
-      where,
-      orderBy: { timestamp: 'desc' },
-    });
+    const { page, pageSize, skip, take } = parsePagination(query || {});
+    const orderBy = buildOrderBy('audit', query?.sortBy, query?.sortOrder);
+
+    const [items, total] = await prisma.$transaction([
+      prisma.auditLog.findMany({ where, skip, take, orderBy }),
+      prisma.auditLog.count({ where }),
+    ]);
+
+    return buildPaginatedResult(items, total, page, pageSize);
   }
 
   async addAuditLog(entry: { userId: string; userName: string; userRole: any; action: string; description: string; ipAddress: string; details?: string }) {

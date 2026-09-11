@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import bcrypt from 'bcryptjs';
-import { pacsStore } from './server/store.js';
+import { pacsStore, prisma } from './server/store.js';
 import { OrthancClient } from './server/orthancClient.js';
 import { authenticate, authorize, generateToken, AuthPayload } from './server/authMiddleware.js';
 import { generateStudyPdf } from './server/pdfReport.js';
@@ -92,34 +92,37 @@ async function startServer() {
 
   // Dashboard Stats
   app.get('/api/dashboard/stats', authenticate, async (req, res) => {
-    const allStudies = await pacsStore.getStudies();
-    const allPatients = await pacsStore.getPatients();
     const todayStr = new Date().toISOString().slice(0, 10);
 
-    const studiesToday = allStudies.filter(s => s.studyDate === todayStr);
-    const studiesMonthCount = allStudies.length;
+    const [totalPatients, studiesToday, studiesMonth, modalityCounts, statusCounts,
+           recentStudies, recentAudit, orthanc] = await Promise.all([
+      prisma.patient.count({ where: { isDeleted: false } }),
+      prisma.study.count({ where: { studyDate: todayStr } }),
+      prisma.study.count(),
+      prisma.study.groupBy({ by: ['modality'], _count: { modality: true } }),
+      prisma.study.groupBy({ by: ['status'], _count: { status: true } }),
+      prisma.study.findMany({
+        orderBy: [{ studyDate: 'desc' }, { studyTime: 'desc' }],
+        take: 5,
+        include: { series: { include: { instances: true } } },
+      }),
+      prisma.auditLog.findMany({ orderBy: { timestamp: 'desc' }, take: 5 }),
+      pacsStore.getOrthancStatus(),
+    ]);
 
-    const modalityCounts: Record<string, number> = {};
-    allStudies.forEach(s => {
-      modalityCounts[s.modality] = (modalityCounts[s.modality] || 0) + 1;
-    });
+    const modalityCountsObj: Record<string, number> = {};
+    modalityCounts.forEach((g: any) => { modalityCountsObj[g.modality] = g._count.modality; });
 
-    const statusCounts: Record<string, number> = {};
-    allStudies.forEach(s => {
-      statusCounts[s.status] = (statusCounts[s.status] || 0) + 1;
-    });
-
-    const recentStudies = allStudies.slice(0, 5);
-    const recentAudit = (await pacsStore.getAuditLogs('ALL')).slice(0, 5);
-    const orthanc = await pacsStore.getOrthancStatus();
+    const statusCountsObj: Record<string, number> = {};
+    statusCounts.forEach((g: any) => { statusCountsObj[g.status] = g._count.status; });
 
     res.json({
-      totalPatients: allPatients.length,
-      studiesToday: studiesToday.length,
-      studiesMonth: studiesMonthCount,
+      totalPatients,
+      studiesToday,
+      studiesMonth,
       totalStorageMb: orthanc?.storageUsageMb,
-      modalityCounts,
-      statusCounts,
+      modalityCounts: modalityCountsObj,
+      statusCounts: statusCountsObj,
       recentStudies,
       recentAudit,
       orthancOnline: orthanc?.online,
@@ -133,9 +136,14 @@ async function startServer() {
 
   // Patients CRUD
   app.get('/api/patients', authenticate, async (req, res) => {
-    const search = req.query.search as string;
-    const patients = await pacsStore.getPatients(search);
-    res.json(patients);
+    const result = await pacsStore.getPatients({
+      search: req.query.search as string,
+      page: parseInt(req.query.page as string),
+      pageSize: parseInt(req.query.pageSize as string),
+      sortBy: req.query.sortBy as string,
+      sortOrder: req.query.sortOrder as string,
+    });
+    res.json(result);
   });
 
   app.get('/api/patients/:id', authenticate, async (req, res) => {
@@ -143,8 +151,17 @@ async function startServer() {
     if (!patient) {
       return res.status(404).json({ error: 'Paciente no encontrado' });
     }
-    const studies = await pacsStore.getStudies({ searchTerm: patient.documentNumber });
+    const studies = await pacsStore.getStudiesByPatientDocument(patient.documentNumber);
     res.json({ ...patient, studies });
+  });
+
+  app.get('/api/patients/:id/studies', authenticate, async (req, res) => {
+    const patient = await pacsStore.getPatientById(req.params.id);
+    if (!patient) {
+      return res.status(404).json({ error: 'Paciente no encontrado' });
+    }
+    const studies = await pacsStore.getStudiesByPatientDocument(patient.documentNumber);
+    res.json(studies);
   });
 
   app.post('/api/patients', authenticate, async (req, res) => {
@@ -195,15 +212,18 @@ async function startServer() {
 
   // Studies Endpoints
   app.get('/api/studies', authenticate, async (req, res) => {
-    const filters = {
+    const result = await pacsStore.getStudies({
       searchTerm: req.query.searchTerm as string,
       modality: req.query.modality as string,
       dateFrom: req.query.dateFrom as string,
       dateTo: req.query.dateTo as string,
       status: req.query.status as string,
-    };
-    const studies = await pacsStore.getStudies(filters);
-    res.json(studies);
+      page: parseInt(req.query.page as string),
+      pageSize: parseInt(req.query.pageSize as string),
+      sortBy: req.query.sortBy as string,
+      sortOrder: req.query.sortOrder as string,
+    });
+    res.json(result);
   });
 
   app.get('/api/studies/:id', authenticate, async (req, res) => {
@@ -382,13 +402,10 @@ async function startServer() {
       });
 
       try {
-        const archive = await OrthancClient.downloadStudyArchive(study.id);
         res.set({
-          'Content-Type': archive.contentType,
           'Content-Disposition': `attachment; filename="DICOM_${study.accessionNumber}.zip"`,
-          'Content-Length': archive.data.byteLength.toString(),
         });
-        res.send(Buffer.from(archive.data));
+        await OrthancClient.streamStudyArchive(study.id, res);
       } catch {
         const zip = archiver('zip', { zlib: { level: 5 } });
         res.set({
@@ -433,9 +450,15 @@ async function startServer() {
 
   // Audit Logs
   app.get('/api/audit', authenticate, async (req, res) => {
-    const action = req.query.action as string;
-    const search = req.query.search as string;
-    res.json(await pacsStore.getAuditLogs(action, search));
+    const result = await pacsStore.getAuditLogs({
+      actionFilter: req.query.action as string,
+      search: req.query.search as string,
+      page: parseInt(req.query.page as string),
+      pageSize: parseInt(req.query.pageSize as string),
+      sortBy: req.query.sortBy as string,
+      sortOrder: req.query.sortOrder as string,
+    });
+    res.json(result);
   });
 
   // Config
