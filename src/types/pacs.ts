@@ -103,6 +103,7 @@ export interface AuditLog {
 
 export interface OrthancStatus {
   online: boolean;
+  configured?: boolean;
   version: string;
   aetitle: string;
   dicomPort: number;
@@ -123,6 +124,7 @@ export interface OrthancStatus {
 }
 
 export interface PACSConfig {
+  id?: number;
   orthancServerUrl: string;
   localAETitle: string;
   remoteAETitle: string; // MINDRAY_DROC
@@ -132,6 +134,7 @@ export interface PACSConfig {
   retentionDays: number;
   anonymizeExportDefault: boolean;
   institutionName: string;
+  isConfigured?: boolean;
 }
 
 export interface StudyFilters {

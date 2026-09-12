@@ -20,6 +20,7 @@ interface SidebarProps {
   unreadCount?: number;
   orthancOnline?: boolean;
   remoteAETitle?: string;
+  isConfigured?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -28,6 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   userRole,
   orthancOnline = false,
   remoteAETitle = '',
+  isConfigured = false,
 }) => {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -47,7 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
         <div className="leading-tight">
           <h1 className="text-white font-bold text-base tracking-tight">MiniPACS</h1>
-          <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Mindray DigiEye 330</p>
+          <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">{remoteAETitle || 'Sin configurar'}</p>
         </div>
       </div>
 
@@ -82,16 +84,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             DR
           </div>
           <div className="overflow-hidden">
-            <p className="text-xs font-semibold text-white truncate">{remoteAETitle || 'PACS'}</p>
-            <p className="text-[10px] text-slate-400 truncate">AET: {remoteAETitle || 'ORTHANC'}</p>
+            <p className="text-xs font-semibold text-white truncate">{remoteAETitle ? remoteAETitle : 'Equipo DICOM'}</p>
+            <p className="text-[10px] text-slate-400 truncate">AET: {remoteAETitle || '—'}</p>
           </div>
         </div>
 
         <div className="flex items-center justify-between text-[10px] text-slate-400 uppercase font-bold tracking-tight border-t border-slate-800/80 pt-2.5">
           <span>Orthanc PACS</span>
-          <span className={`flex items-center gap-1 font-semibold ${orthancOnline ? 'text-emerald-400' : 'text-rose-400'}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${orthancOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-            {orthancOnline ? 'Connected' : 'Offline'}
+          <span className={`flex items-center gap-1 font-semibold ${orthancOnline && isConfigured ? 'text-emerald-400' : 'text-rose-400'}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${orthancOnline && isConfigured ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+            {orthancOnline && isConfigured ? 'Connected' : (!isConfigured ? 'No Configurado' : 'Offline')}
           </span>
         </div>
       </div>

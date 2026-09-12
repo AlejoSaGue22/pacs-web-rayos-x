@@ -10,6 +10,7 @@ import { OrthancSyncView } from './components/orthanc/OrthancSyncView';
 import { AuditView } from './components/audit/AuditView';
 import { UsersView } from './components/users/UsersView';
 import { ConfigView } from './components/config/ConfigView';
+import { ConfigWarningBanner } from './components/common/ConfigWarningBanner';
 import { OhifViewerModal } from './components/viewer/OhifViewerModal';
 import { DicomTagsModal } from './components/studies/DicomTagsModal';
 import { LoginPage } from './components/auth/LoginPage';
@@ -25,6 +26,7 @@ export default function App() {
   const [orthancStatus, setOrthancStatus] = useState<OrthancStatus | null>(null);
   const [pacsConfig, setPacsConfig] = useState<PACSConfig | null>(null);
   const [usersList, setUsersList] = useState<User[]>([]);
+  const [dismissWarningBanner, setDismissWarningBanner] = useState(false);
 
   const [quickSearchTerm, setQuickSearchTerm] = useState('');
   const [quickSearchKey, setQuickSearchKey] = useState(0);
@@ -155,7 +157,7 @@ export default function App() {
     <div className="h-screen bg-[#F1F5F9] text-slate-800 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
       <Header
         currentUser={currentUser}
-        orthancOnline={orthancStatus?.online ?? true}
+        orthancOnline={orthancStatus?.online ?? false}
         pacsConfig={pacsConfig}
         isSyncing={isSyncing}
         onSyncOrthanc={handleSyncOrthanc}
@@ -164,6 +166,14 @@ export default function App() {
         quickSearchTerm={quickSearchTerm}
       />
 
+      {pacsConfig && !pacsConfig.isConfigured && !dismissWarningBanner && (
+        <ConfigWarningBanner
+          userRole={currentUser.role}
+          onNavigateToConfig={() => setActiveTab('config')}
+          onDismiss={() => setDismissWarningBanner(true)}
+        />
+      )}
+
       <div className="flex-1 flex overflow-hidden">
         <Sidebar
           activeTab={activeTab}
@@ -171,18 +181,25 @@ export default function App() {
           userRole={currentUser.role}
           orthancOnline={orthancStatus?.online ?? false}
           remoteAETitle={pacsConfig?.remoteAETitle || ''}
+          isConfigured={pacsConfig?.isConfigured ?? false}
         />
 
         <main className="flex-1 overflow-y-auto p-6 bg-[#F1F5F9]">
-          {activeTab === 'dashboard' && dashboardStats && (
-            <DashboardView
-              stats={dashboardStats}
-              weeklyStats={weeklyStats?.days || null}
-              pacsConfig={pacsConfig}
-              orthancStatus={orthancStatus}
-              onOpenStudyViewer={study => setStudyForViewer(study)}
-              onNavigateTab={tab => setActiveTab(tab)}
-            />
+          {activeTab === 'dashboard' && (
+            dashboardStats ? (
+              <DashboardView
+                stats={dashboardStats}
+                weeklyStats={weeklyStats?.days || null}
+                pacsConfig={pacsConfig}
+                orthancStatus={orthancStatus}
+                onOpenStudyViewer={study => setStudyForViewer(study)}
+                onNavigateTab={tab => setActiveTab(tab)}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-64 text-slate-400 text-sm">
+                Cargando panel de control...
+              </div>
+            )
           )}
 
           {activeTab === 'patients' && (
@@ -200,14 +217,20 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'orthanc' && orthancStatus && pacsConfig && (
-            <OrthancSyncView
-              status={orthancStatus}
-              config={pacsConfig}
-              isSyncing={isSyncing}
-              onSyncNow={handleSyncOrthanc}
-              onReceiveSimulatedStudy={() => loadData()}
-            />
+          {activeTab === 'orthanc' && (
+            orthancStatus && pacsConfig ? (
+              <OrthancSyncView
+                status={orthancStatus}
+                config={pacsConfig}
+                isSyncing={isSyncing}
+                onSyncNow={handleSyncOrthanc}
+                onReceiveSimulatedStudy={() => loadData()}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-64 text-slate-400 text-sm">
+                Cargando estado del servidor...
+              </div>
+            )
           )}
 
           {activeTab === 'audit' && (
@@ -224,11 +247,17 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'config' && pacsConfig && (
-            <ConfigView
-              config={pacsConfig}
-              onSaveConfig={handleSaveConfig}
-            />
+          {activeTab === 'config' && (
+            pacsConfig ? (
+              <ConfigView
+                config={pacsConfig}
+                onSaveConfig={handleSaveConfig}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-64 text-slate-400 text-sm">
+                Cargando configuración...
+              </div>
+            )
           )}
         </main>
       </div>

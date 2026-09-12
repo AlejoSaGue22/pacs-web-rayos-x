@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import { DicomStudy, AuditLog, OrthancStatus, PACSConfig } from '../../types/pacs';
+import { isPacsOperational } from '../../utils/pacsValidation';
 
 interface DashboardViewProps {
   stats: {
@@ -59,13 +60,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   ];
 
   const institutionName = pacsConfig?.institutionName || 'Mini PACS - Rayos X';
+  const operational = isPacsOperational(orthancStatus, pacsConfig);
   const storagePercent = stats.totalStorageMb > 0 ? Math.min(100, Math.round((stats.totalStorageMb / 50000) * 100)) : 0;
   const equipment = stats.connectedEquipment?.[0] || orthancStatus?.connectedEquipment?.[0];
-  const equipmentName = equipment?.name || 'Equipo DICOM';
-  const equipmentAET = equipment?.aetitle || pacsConfig?.remoteAETitle || 'ORTHANC_PACS';
-  const equipmentPort = equipment?.port || pacsConfig?.remotePort || 4242;
-  const isEquipmentConnected = orthancStatus?.online ?? stats.orthancOnline;
-  const indexedPercent = stats.studiesMonth > 0 ? Math.min(100, Math.round((stats.studiesMonth / Math.max(stats.studiesMonth, 1)) * 100)) : 100;
+  const equipmentName = equipment?.name || pacsConfig?.remoteAETitle || 'Equipo DICOM';
+  const equipmentAET = equipment?.aetitle || pacsConfig?.remoteAETitle || '';
+  const equipmentPort = equipment?.port || 0;
+  const isEquipmentConnected = operational;
 
   return (
     <div className="space-y-6">
@@ -123,7 +124,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Estudios (Mes)</p>
           <h3 className="text-2xl font-bold text-slate-800">{stats.studiesMonth}</h3>
           <div className="mt-1 text-[10px] text-amber-600 font-semibold">
-            {indexedPercent}% Indexado en Orthanc
+            {operational ? 'Sincronización con Orthanc verificada' : 'Sin verificar — PACS no operativo'}
           </div>
         </div>
 
@@ -204,11 +205,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </span>
               <span className={`font-bold flex items-center gap-1 text-[11px] ${isEquipmentConnected ? 'text-emerald-600' : 'text-rose-600'}`}>
                 <span className={`w-2 h-2 rounded-full ${isEquipmentConnected ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                {isEquipmentConnected ? 'Conectado' : 'Desconectado'}
+                {isEquipmentConnected ? 'Conectado' : (!pacsConfig?.isConfigured ? 'No Configurado' : 'Desconectado')}
               </span>
             </div>
             <p className="text-[11px] text-slate-500">
-              C-STORE directo a AET <span className="text-blue-700 font-mono font-bold">{equipmentAET}:{equipmentPort}</span>
+              {pacsConfig?.isConfigured && equipmentAET ? (
+                <>C-STORE directo a AET <span className="text-blue-700 font-mono font-bold">{equipmentAET}{equipmentPort ? `:${equipmentPort}` : ''}</span></>
+              ) : (
+                <span className="italic text-slate-400">C-STORE no configurado — complete la configuración del PACS</span>
+              )}
             </p>
           </div>
         </div>

@@ -98,7 +98,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 shadow-sm shadow-blue-600/20"
+              className="w-full py-2.5 cursor-pointer bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 shadow-sm shadow-blue-600/20"
             >
               {loading ? (
                 <span className="flex items-center gap-2">

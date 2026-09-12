@@ -212,14 +212,14 @@ async function main() {
     prisma.auditLog.create({ data: { id: 'aud-004', timestamp: '2026-07-29T09:15:00Z', userId: 'usr-001', userName: 'Dr. Alejandro Morales', userRole: 'Admin', action: 'PATIENT_UPDATE', description: 'Actualización de datos del paciente Juan Carlos Pérez Gómez', ipAddress: '192.168.1.10', details: 'Se actualizó teléfono de contacto y correo electrónico.' } }),
   ]);
 
-  // PacsConfig
+  // PacsConfig: inicia sin configuracion (el admin debe completarla en Configuracion)
   await prisma.pacsConfig.create({
-    data: { id: 1, orthancServerUrl: 'http://localhost:8042', localAETitle: 'ORTHANC_PACS', remoteAETitle: 'MINDRAY_DROC', remoteIp: '192.168.1.105', remotePort: 104, autoSyncIntervalSec: 15, retentionDays: 365, anonymizeExportDefault: true, institutionName: 'Consultorio de Rayos X - Mindray DigiEye 330' },
+    data: { id: 1, orthancServerUrl: '', localAETitle: '', remoteAETitle: '', remoteIp: '', remotePort: 0, autoSyncIntervalSec: 0, retentionDays: 0, anonymizeExportDefault: false, institutionName: '', isConfigured: false },
   });
 
   // OrthancStatus
   await prisma.orthancStatus.create({
-    data: { id: 1, online: true, version: '1.12.3', aetitle: 'ORTHANC_PACS', dicomPort: 4242, httpPort: 8042, storageUsageMb: 142.8, patientCount: 6, studyCount: 6, seriesCount: 12, instanceCount: 12, lastSyncTime: new Date().toISOString(), connectedEquipment: [{ name: 'Mindray DigiEye 330 Series (DROC)', aetitle: 'MINDRAY_DROC', ip: '192.168.1.105', port: 104, status: 'ACTIVE' }, { name: 'Estación de Trabajo Radiólogo 1', aetitle: 'RAD_WORKSTATION_1', ip: '192.168.1.42', port: 11112, status: 'ACTIVE' }] },
+    data: { id: 1, online: false, version: '', aetitle: '', dicomPort: 0, httpPort: 0, storageUsageMb: 0, patientCount: 0, studyCount: 0, seriesCount: 0, instanceCount: 0, lastSyncTime: '', connectedEquipment: [] },
   });
 
   console.log('Seed completado exitosamente.');

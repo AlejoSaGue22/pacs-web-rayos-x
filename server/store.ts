@@ -436,16 +436,23 @@ class PacsStore {
 
   // --- Orthanc Status & Config ---
   async getOrthancStatus() {
-    const status = await prisma.orthancStatus.findFirst();
+    const config = await this.getPacsConfig();
+    const configured = !!config?.isConfigured;
+    const storedStatus = await prisma.orthancStatus.findFirst();
 
     let systemInfo: any = {};
     let modalitiesData: any[] = [];
     try {
       systemInfo = await OrthancClient.getSystem();
-      modalitiesData = await OrthancClient.getModalities();
+      if (configured) {
+        modalitiesData = await OrthancClient.getModalities();
+      }
     } catch {
-      // Orthanc offline
+      systemInfo = {};
+      modalitiesData = [];
     }
+
+    const online = !!(systemInfo.ApiVersion);
 
     const studyCount = await prisma.study.count();
     const patientCount = await prisma.patient.count({ where: { isDeleted: false } });
@@ -457,56 +464,83 @@ class PacsStore {
       : 0;
     const storageUsageMb = storageUsageBytes
       ? Math.round((storageUsageBytes / (1024 * 1024)) * 10) / 10
-      : (status?.storageUsageMb || 0);
+      : 0;
 
-    const connectedEquipment = Array.isArray(modalitiesData)
+    const matchesConfiguredEquipment = (m: any) => {
+      const aet = String(m.AET || m.SymbolicName || '').trim();
+      const host = String(m.Host || '').trim();
+      return (!!config.remoteAETitle && aet === config.remoteAETitle.trim())
+        || (!!config.remoteIp && host === config.remoteIp.trim());
+    };
+
+    const connectedEquipment = (configured && online && Array.isArray(modalitiesData))
       ? modalitiesData.map((m: any) => ({
-        name: m.Type || 'DICOM Device',
+        name: m.Type || m.SymbolicName || 'DICOM Device',
         aetitle: m.AET || m.SymbolicName || '',
         ip: m.Host || '',
         port: m.Port || 0,
-        status: 'ACTIVE' as const,
+        status: matchesConfiguredEquipment(m) ? 'ACTIVE' : 'IDLE',
       }))
-      : (status?.connectedEquipment || []);
+      : [];
 
     return {
-      online: !!(systemInfo.ApiVersion),
-      version: systemInfo.Version || (status?.version || ''),
-      aetitle: systemInfo.DicomAet || (status?.aetitle || ''),
-      dicomPort: systemInfo.DicomPort || (status?.dicomPort || 4242),
-      httpPort: systemInfo.HttpPort || (status?.httpPort || 8042),
+      online,
+      configured,
+      version: systemInfo.Version || '',
+      aetitle: systemInfo.DicomAet || '',
+      dicomPort: systemInfo.DicomPort || 0,
+      httpPort: systemInfo.HttpPort || 0,
       storageUsageMb,
       patientCount,
       studyCount,
       seriesCount,
       instanceCount,
-      lastSyncTime: status?.lastSyncTime || '',
+      lastSyncTime: configured ? (storedStatus?.lastSyncTime || '') : '',
       connectedEquipment,
     };
   }
 
   async getPacsConfig() {
-    return prisma.pacsConfig.findFirst();
+    let config = await prisma.pacsConfig.findFirst();
+    if (!config) {
+      config = await prisma.pacsConfig.upsert({
+        where: { id: 1 },
+        update: {},
+        create: {
+          id: 1,
+          institutionName: '',
+          orthancServerUrl: '',
+          localAETitle: '',
+          remoteAETitle: '',
+          remoteIp: '',
+          remotePort: 0,
+          autoSyncIntervalSec: 0,
+          retentionDays: 0,
+          anonymizeExportDefault: false,
+          isConfigured: false,
+        },
+      });
+    }
+    return config;
   }
 
   async updatePacsConfig(newConfig: any, userId: string, userName: string, userRole: any) {
-    const existing = await this.getPacsConfig();
-    const mergedConfig = { ...existing, ...newConfig };
     const updated = await prisma.pacsConfig.upsert({
       where: { id: 1 },
-      update: newConfig,
+      update: { ...newConfig, isConfigured: true },
       create: {
         id: 1,
+        institutionName: '',
+        orthancServerUrl: '',
+        localAETitle: '',
+        remoteAETitle: '',
+        remoteIp: '',
+        remotePort: 0,
+        autoSyncIntervalSec: 0,
+        retentionDays: 0,
         anonymizeExportDefault: false,
-        institutionName: 'Consultorio',
-        orthancServerUrl: 'http://localhost:8042',
-        localAETitle: 'ORTHANC',
-        remoteAETitle: 'REMOTE',
-        remoteIp: '127.0.0.1',
-        remotePort: 104,
-        autoSyncIntervalSec: 60,
-        retentionDays: 365,
-        ...mergedConfig
+        ...newConfig,
+        isConfigured: true,
       },
     });
 

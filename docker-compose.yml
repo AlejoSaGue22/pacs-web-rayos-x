@@ -25,6 +25,7 @@ services:
     environment:
       - BACKEND_WEBHOOK_URL=http://app:3000/api/orthanc/webhook
       - BACKEND_WEBHOOK_SECRET=pacs-webhook-secret-2026
+    command: ["/etc/orthanc/orthanc.json"]
     restart: unless-stopped
 
   # app:

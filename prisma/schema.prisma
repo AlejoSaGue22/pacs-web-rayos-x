@@ -120,6 +120,7 @@ model PacsConfig {
   retentionDays          Int
   anonymizeExportDefault Boolean
   institutionName        String
+  isConfigured           Boolean  @default(false)
 }
 
 model OrthancStatus {
