@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Server,
   RefreshCw,
@@ -7,11 +7,6 @@ import {
   CheckCircle,
   AlertCircle,
   Activity,
-  Send,
-  Sliders,
-  Cpu,
-  Layers,
-  Sparkles,
 } from 'lucide-react';
 import { OrthancStatus, PACSConfig } from '../../types/pacs';
 
@@ -20,7 +15,6 @@ interface OrthancSyncViewProps {
   config: PACSConfig;
   isSyncing?: boolean;
   onSyncNow: () => void;
-  onReceiveSimulatedStudy: (studyData: any) => void;
 }
 
 export const OrthancSyncView: React.FC<OrthancSyncViewProps> = ({
@@ -28,44 +22,21 @@ export const OrthancSyncView: React.FC<OrthancSyncViewProps> = ({
   config,
   isSyncing = false,
   onSyncNow,
-  onReceiveSimulatedStudy,
 }) => {
-  const [isSimulating, setIsSimulating] = useState(false);
-  const [simulatedLog, setSimulatedLog] = useState<string[]>([]);
+  const [justUpdated, setJustUpdated] = useState(false);
+
+  useEffect(() => {
+    if (status.lastSyncTime) {
+      setJustUpdated(true);
+      const timer = setTimeout(() => setJustUpdated(false), 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [status.lastSyncTime]);
 
   const EQUIPMENT_STATUS_STYLES: Record<string, string> = {
     ACTIVE: 'bg-emerald-100 text-emerald-700',
     IDLE: 'bg-amber-100 text-amber-700',
     OFFLINE: 'bg-rose-100 text-rose-700',
-  };
-
-  const handleSimulateCStore = () => {
-    setIsSimulating(true);
-    setSimulatedLog(prev => [
-      ...prev,
-      `[C-STORE RECEPTION] Iniciando comunicación DICOM AET: ${config.remoteAETitle} -> ${config.localAETitle}`,
-      `[C-STORE RECEPTION] Transfiriendo SOP Instance 1.2.840.113619.2.55.3.2831172839.999 (Mindray DigiEye 330)...`,
-    ]);
-
-    setTimeout(() => {
-      setSimulatedLog(prev => [
-        ...prev,
-        `[ORTHANC PACS] Estudio procesado e indexado en almacenamiento de Orthanc.`,
-        `[REST API NOTIFY] Notificación Webhook enviada a Mini PACS Server NestJS/Express.`,
-      ]);
-
-      const newSimulatedStudy = {
-        accessionNumber: `ACC-2026-${Math.floor(1000 + Math.random() * 9000)}`,
-        patientDocument: `109${Math.floor(100000 + Math.random() * 900000)}`,
-        patientName: 'García Lorca, Federico',
-        studyDescription: 'Rx Tórax Frente y Perfil',
-        modality: 'DX',
-        bodyPart: 'CHEST',
-      };
-
-      onReceiveSimulatedStudy(newSimulatedStudy);
-      setIsSimulating(false);
-    }, 1500);
   };
 
   return (
@@ -143,7 +114,11 @@ export const OrthancSyncView: React.FC<OrthancSyncViewProps> = ({
           <div className="text-[11px] text-slate-500">Indexados: {status.studyCount} Estudios ({status.instanceCount} Instancias)</div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-1">
+        <div className={`bg-white border rounded-xl p-4 shadow-xs space-y-1 transition-all duration-300 ${
+          justUpdated 
+            ? 'border-emerald-500 shadow-emerald-200 shadow-md' 
+            : 'border-slate-200'
+        }`}>
           <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
             <span>Última Sincronización</span>
             <Activity className="w-4 h-4 text-amber-600" />
@@ -157,81 +132,47 @@ export const OrthancSyncView: React.FC<OrthancSyncViewProps> = ({
         </div>
       </div>
 
-      {/* Equipment Connections & Simulator */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Equipment DICOM C-STORE Peers */}
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">
-          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-            <Tv className="w-4 h-4 text-blue-600" />
-            Modalidades Conectadas (DICOM C-STORE Peers)
-          </h3>
+      {/* Equipment Connections */}
+      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">
+        <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+          <Tv className="w-4 h-4 text-blue-600" />
+          Modalidades Conectadas (DICOM C-STORE Peers)
+        </h3>
 
-          {!config.isConfigured ? (
-            <div className="p-4 bg-slate-50 border border-dashed border-slate-300 rounded-lg text-xs text-slate-500 flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-slate-400 shrink-0" />
-              <span>Configuración del PACS no validada. Las modalidades no pueden verificarse hasta completar la configuración del servidor.</span>
-            </div>
-          ) : !status.online ? (
-            <div className="p-4 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
-              <span>Servidor Orthanc no alcanzable. No es posible verificar las modalidades conectadas en este momento.</span>
-            </div>
-          ) : status.connectedEquipment.length === 0 ? (
-            <div className="p-4 bg-slate-50 border border-dashed border-slate-300 rounded-lg text-xs text-slate-500 flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-slate-400 shrink-0" />
-              <span>El servidor Orthanc responde, pero no tiene modalidades DICOM registradas.</span>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {status.connectedEquipment.map((eq, idx) => (
-                <div key={idx} className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="font-bold text-slate-800 text-xs">{eq.name}</div>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${EQUIPMENT_STATUS_STYLES[eq.status] || 'bg-slate-200 text-slate-600'}`}>
-                      {eq.status}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 text-[11px] font-mono text-slate-600">
-                    <div>AET: <span className="text-blue-700 font-bold">{eq.aetitle || '—'}</span></div>
-                    <div>IP: <span className="text-slate-800">{eq.ip || '—'}</span></div>
-                    <div>Puerto: <span className="text-slate-800">{eq.port || '—'}</span></div>
-                  </div>
+        {!config.isConfigured ? (
+          <div className="p-4 bg-slate-50 border border-dashed border-slate-300 rounded-lg text-xs text-slate-500 flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-slate-400 shrink-0" />
+            <span>Configuración del PACS no validada. Las modalidades no pueden verificarse hasta completar la configuración del servidor.</span>
+          </div>
+        ) : !status.online ? (
+          <div className="p-4 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+            <span>Servidor Orthanc no alcanzable. No es posible verificar las modalidades conectadas en este momento.</span>
+          </div>
+        ) : status.connectedEquipment.length === 0 ? (
+          <div className="p-4 bg-slate-50 border border-dashed border-slate-300 rounded-lg text-xs text-slate-500 flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-slate-400 shrink-0" />
+            <span>El servidor Orthanc responde, pero no tiene modalidades DICOM registradas.</span>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {status.connectedEquipment.map((eq, idx) => (
+              <div key={idx} className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="font-bold text-slate-800 text-xs">{eq.name}</div>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${EQUIPMENT_STATUS_STYLES[eq.status] || 'bg-slate-200 text-slate-600'}`}>
+                    {eq.status}
+                  </span>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Test Simulator: Receive C-STORE from Mindray DigiEye 330 */}
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-600" />
-              Simulador C-STORE DigiEye 330
-            </h3>
-            <button
-              onClick={handleSimulateCStore}
-              disabled={isSimulating}
-              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-md text-xs flex items-center gap-1.5 transition-all disabled:opacity-50 shadow-xs"
-            >
-              <Send className="w-3.5 h-3.5" />
-              Simular Envío de Estudio Rx
-            </button>
-          </div>
-
-          <p className="text-xs text-slate-500 leading-relaxed">
-            Esta herramienta simula la llegada automática de un estudio DICOM desde la consola Mindray DROC hacia el servidor Orthanc.
-          </p>
-
-          <div className="h-40 bg-slate-900 border border-slate-800 rounded-lg p-3 font-mono text-[11px] text-emerald-400 overflow-y-auto space-y-1">
-            {simulatedLog.map((log, idx) => (
-              <div key={idx}>{log}</div>
+                <div className="grid grid-cols-3 gap-2 text-[11px] font-mono text-slate-600">
+                  <div>AET: <span className="text-blue-700 font-bold">{eq.aetitle || '—'}</span></div>
+                  <div>IP: <span className="text-slate-800">{eq.ip || '—'}</span></div>
+                  <div>Puerto: <span className="text-slate-800">{eq.port || '—'}</span></div>
+                </div>
+              </div>
             ))}
-            {simulatedLog.length === 0 && (
-              <div className="text-slate-500 italic">Esperando eventos C-STORE...</div>
-            )}
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

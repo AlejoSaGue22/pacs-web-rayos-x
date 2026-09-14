@@ -1,4 +1,4 @@
-import { Patient, DicomStudy, User, AuditLog, OrthancStatus, PACSConfig } from '../types/pacs';
+import { Patient, DicomStudy, User, AuditLog, OrthancStatus, PACSConfig, SyncResult } from '../types/pacs';
 import { PaginatedResult, PatientQuery, StudyListQuery, AuditLogQuery } from '../types/pagination';
 
 const API_BASE = '/api';
@@ -165,7 +165,7 @@ export class PacsApiService {
     return res.json();
   }
 
-  static async syncOrthanc() {
+  static async syncOrthanc(): Promise<SyncResult> {
     const res = await fetch(`${API_BASE}/orthanc/sync`, {
       method: 'POST',
       headers: authHeaders(),

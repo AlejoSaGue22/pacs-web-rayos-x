@@ -21,17 +21,7 @@ export default defineConfig(() => {
       },
     },
     optimizeDeps: {
-      // Exclude Cornerstone packages from esbuild pre-bundling to avoid
-      // circular-dependency issues that cause "Class extends value undefined"
-      exclude: [
-        '@cornerstonejs/core',
-        '@cornerstonejs/tools',
-        '@cornerstonejs/dicom-image-loader',
-        '@cornerstonejs/utils',
-        '@kitware/vtk.js',
-      ],
-      // Ensure dicom-parser and xmlbuilder2 (CJS) are pre-bundled so Cornerstone can use them
-      include: ['dicom-parser', 'xmlbuilder2'],
+      exclude: ['@kitware/vtk.js'],
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

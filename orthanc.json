@@ -45,7 +45,16 @@
 
   "LuaScripts": ["/etc/orthanc/orthanc-webhook.lua"],
 
-  "Plugins": ["/usr/share/orthanc/plugins"],
+  "Plugins": [
+    "/usr/local/share/orthanc/plugins/libOrthancDicomWeb.so"
+  ],
+
+  "DicomWeb" : {
+    "Enable" : true,
+    "Root" : "/dicom-web/",
+    "EnableWado" : true,
+    "WadoUriRoot" : "/dicom-web/"
+  },
 
   "ConcurrentJobs": 4,
   "JobsHistorySize": 100,

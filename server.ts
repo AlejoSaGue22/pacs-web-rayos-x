@@ -13,6 +13,7 @@ const require = createRequire(import.meta.url);
 const archiver = require('archiver');
 import * as http from 'http';
 import { Server } from 'socket.io';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -260,6 +261,34 @@ async function startServer() {
     res.json(updated);
   });
 
+  // CORS Middleware específico para DICOMweb (necesario porque OHIF corre en otro puerto)
+  app.use('/api/dicom-web', (req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
+  // DICOMweb Proxy para OHIF
+  app.use('/api/dicom-web', authenticate, (req, res, next) => {
+    // Reemplazar el JWT de Mini PACS por el Basic Auth de Orthanc
+    const token = Buffer.from(`${process.env.ORTHANC_USER}:${process.env.ORTHANC_PASS}`).toString('base64');
+    req.headers['authorization'] = `Basic ${token}`;
+    next();
+  }, createProxyMiddleware({
+    target: process.env.ORTHANC_URL || 'http://localhost:8042',
+    changeOrigin: true,
+    pathRewrite: {
+      // Como usamos app.use('/api/dicom-web'), express recorta esa parte de la URL.
+      // Así que req.url llega como "/studies". Le añadimos "/dicom-web" al principio
+      // para que Orthanc lo reciba en su plugin DICOMweb (http://localhost:8042/dicom-web/studies).
+      '^/': '/dicom-web/',
+    }
+  }));
+
   // Orthanc DICOM REST API endpoints
   app.get('/api/orthanc/status', authenticate, async (req, res) => {
     res.json(await pacsStore.getOrthancStatus());
@@ -296,17 +325,32 @@ async function startServer() {
     });
   });
 
-  app.get('/api/orthanc/dicom/:instanceId', async (req, res) => {
-    const { instanceId } = req.params;
+  app.get('/api/orthanc/dicom/:identifier', async (req, res) => {
+    const { identifier } = req.params;
     try {
       const orthancUrl = process.env.ORTHANC_URL || 'http://localhost:8042';
       const token = Buffer.from(`${process.env.ORTHANC_USER}:${process.env.ORTHANC_PASS}`).toString('base64');
-      const response = await fetch(`${orthancUrl}/instances/${instanceId}/file`, {
+      
+      // Try 1: Assume identifier is Orthanc instance ID
+      let response = await fetch(`${orthancUrl}/instances/${identifier}/file`, {
         headers: { Authorization: `Basic ${token}` },
       });
+      
+      // Try 2: If failed, search by SOPInstanceUID in database
+      if (!response.ok) {
+        const instance = await pacsStore.getInstanceBySopInstanceUid(identifier);
+        if (instance) {
+          // Use the real Orthanc ID from database
+          response = await fetch(`${orthancUrl}/instances/${instance.id}/file`, {
+            headers: { Authorization: `Basic ${token}` },
+          });
+        }
+      }
+      
       if (!response.ok) {
         return res.status(404).json({ error: 'DICOM file not found in Orthanc' });
       }
+      
       const arrayBuffer = await response.arrayBuffer();
       res.set({
         'Content-Type': 'application/dicom',

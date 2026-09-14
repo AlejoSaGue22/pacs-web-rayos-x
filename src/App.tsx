@@ -11,7 +11,6 @@ import { AuditView } from './components/audit/AuditView';
 import { UsersView } from './components/users/UsersView';
 import { ConfigView } from './components/config/ConfigView';
 import { ConfigWarningBanner } from './components/common/ConfigWarningBanner';
-import { OhifViewerModal } from './components/viewer/OhifViewerModal';
 import { DicomTagsModal } from './components/studies/DicomTagsModal';
 import { LoginPage } from './components/auth/LoginPage';
 import { PacsApiService } from './services/pacsApi';
@@ -31,7 +30,7 @@ export default function App() {
   const [quickSearchTerm, setQuickSearchTerm] = useState('');
   const [quickSearchKey, setQuickSearchKey] = useState(0);
 
-  const [studyForViewer, setStudyForViewer] = useState<DicomStudy | null>(null);
+
   const [studyForTags, setStudyForTags] = useState<DicomStudy | null>(null);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -48,26 +47,41 @@ export default function App() {
 
   const loadData = async () => {
     if (!PacsApiService.isAuthenticated()) return;
+    
+    // Cargar cada dato independientemente para que un fallo no rompa los demás
     try {
-      const [stats, weekly, orthanc, config, users] = await Promise.all([
-        PacsApiService.getDashboardStats(),
-        PacsApiService.getWeeklyStats(),
-        PacsApiService.getOrthancStatus(),
-        PacsApiService.getPacsConfig(),
-        PacsApiService.getUsers(),
-      ]);
-
+      const stats = await PacsApiService.getDashboardStats();
       setDashboardStats(stats);
+    } catch (e: any) {
+      console.error('Error cargando dashboard stats:', e);
+    }
+
+    try {
+      const weekly = await PacsApiService.getWeeklyStats();
       setWeeklyStats(weekly);
+    } catch (e: any) {
+      console.error('Error cargando weekly stats:', e);
+    }
+
+    try {
+      const orthanc = await PacsApiService.getOrthancStatus();
       setOrthancStatus(orthanc);
+    } catch (e: any) {
+      console.error('Error cargando orthanc status:', e);
+    }
+
+    try {
+      const config = await PacsApiService.getPacsConfig();
       setPacsConfig(config);
+    } catch (e: any) {
+      console.error('Error cargando config:', e);
+    }
+
+    try {
+      const users = await PacsApiService.getUsers();
       setUsersList(users);
     } catch (e: any) {
-      console.error('Error cargando datos PACS:', e);
-      setToastMessage(e.message || 'Error de conexión. Sesión terminada.');
-      setTimeout(() => {
-        handleLogout();
-      }, 2500);
+      console.error('Error cargando users:', e);
     }
   };
 
@@ -110,6 +124,17 @@ export default function App() {
     return <LoginPage onLogin={handleLogin} />;
   }
 
+  const handleOpenViewer = (study: DicomStudy) => {
+    const token = localStorage.getItem('pacs_token');
+    const port = window.location.port ? `:${window.location.port}` : '';
+    // En desarrollo local (vite 3000), asumimos que OHIF corre en el 80.
+    // Si estamos en localhost, abrimos el localhost:80. Si es red, misma IP.
+    const baseUrl = `${window.location.protocol}//${window.location.hostname}`;
+    const ohifPort = ':80'; // Según el docker-compose
+    const ohifUrl = `${baseUrl}${ohifPort}/viewer?StudyInstanceUIDs=${study.studyInstanceUid}&token=${token}`;
+    window.location.href = ohifUrl;
+  };
+
   const handleQuickSearch = (term: string) => {
     setQuickSearchTerm(term);
     setQuickSearchKey(k => k + 1);
@@ -122,14 +147,27 @@ export default function App() {
     setIsSyncing(true);
     setToastMessage('Iniciando sincronización manual...');
     try {
-      await PacsApiService.syncOrthanc();
+      const result = await PacsApiService.syncOrthanc();
+      
+      // Actualización optimista inmediata del timestamp sin esperar loadData
+      setOrthancStatus(prev => prev
+        ? { ...prev, lastSyncTime: result.timestamp, online: result.success }
+        : prev
+      );
+      
+      // Toast con datos reales del sync
+      const estudiosMsg = result.newStudies > 0
+        ? `${result.newStudies} estudio${result.newStudies > 1 ? 's' : ''} nuevo${result.newStudies > 1 ? 's' : ''} importado${result.newStudies > 1 ? 's' : ''}`
+        : 'sin estudios nuevos';
+      setToastMessage(`Sincronización completada: ${estudiosMsg} (${result.syncedStudies} totales en BD)`);
+      
+      // Recargar el resto de datos en background
       await loadData();
-      setToastMessage('Sincronización completada exitosamente.');
-    } catch {
-      setToastMessage('Error al sincronizar con Orthanc.');
+    } catch (e: any) {
+      setToastMessage(`Error al sincronizar con Orthanc: ${e.message || 'Error desconocido'}`);
     } finally {
       setIsSyncing(false);
-      setTimeout(() => setToastMessage(null), 3000);
+      setTimeout(() => setToastMessage(null), 4000);
     }
   };
 
@@ -192,7 +230,7 @@ export default function App() {
                 weeklyStats={weeklyStats?.days || null}
                 pacsConfig={pacsConfig}
                 orthancStatus={orthancStatus}
-                onOpenStudyViewer={study => setStudyForViewer(study)}
+                onOpenStudyViewer={handleOpenViewer}
                 onNavigateTab={tab => setActiveTab(tab)}
               />
             ) : (
@@ -204,7 +242,7 @@ export default function App() {
 
           {activeTab === 'patients' && (
             <PatientsView
-              onOpenStudyViewer={study => setStudyForViewer(study)}
+              onOpenStudyViewer={handleOpenViewer}
             />
           )}
 
@@ -212,7 +250,7 @@ export default function App() {
             <StudiesView
               quickSearchTerm={quickSearchTerm}
               quickSearchKey={quickSearchKey}
-              onOpenViewer={study => setStudyForViewer(study)}
+              onOpenViewer={handleOpenViewer}
               onOpenTagsModal={study => setStudyForTags(study)}
             />
           )}
@@ -224,7 +262,6 @@ export default function App() {
                 config={pacsConfig}
                 isSyncing={isSyncing}
                 onSyncNow={handleSyncOrthanc}
-                onReceiveSimulatedStudy={() => loadData()}
               />
             ) : (
               <div className="flex items-center justify-center h-64 text-slate-400 text-sm">
@@ -261,13 +298,6 @@ export default function App() {
           )}
         </main>
       </div>
-
-      {studyForViewer && (
-        <OhifViewerModal
-          study={studyForViewer}
-          onClose={() => setStudyForViewer(null)}
-        />
-      )}
 
       {studyForTags && (
         <DicomTagsModal

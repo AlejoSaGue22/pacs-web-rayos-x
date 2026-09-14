@@ -144,3 +144,10 @@ export interface StudyFilters {
   dateTo: string;
   status: string;
 }
+
+export interface SyncResult {
+  success: boolean;
+  timestamp: string;
+  syncedStudies: number;
+  newStudies: number;
+}

@@ -28,6 +28,15 @@ services:
     command: ["/etc/orthanc/orthanc.json"]
     restart: unless-stopped
 
+  ohif:
+    build:
+      context: ./docker/ohif
+      dockerfile: Dockerfile
+    container_name: pacs-ohif
+    ports:
+      - "80:80"
+    restart: unless-stopped
+
   # app:
   #   build: .
   #   container_name: pacs-app

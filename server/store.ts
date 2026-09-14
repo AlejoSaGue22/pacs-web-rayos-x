@@ -206,6 +206,12 @@ class PacsStore {
     };
   }
 
+  async getInstanceBySopInstanceUid(sopInstanceUid: string) {
+    return prisma.instance.findFirst({
+      where: { sopInstanceUid },
+    });
+  }
+
   // --- Orthanc Synchronization ---
   async syncWithOrthanc(userId: string, userName: string, userRole: any) {
     let syncedCount = 0;
