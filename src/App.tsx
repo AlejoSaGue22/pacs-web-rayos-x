@@ -130,7 +130,7 @@ export default function App() {
     // En desarrollo local (vite 3000), asumimos que OHIF corre en el 80.
     // Si estamos en localhost, abrimos el localhost:80. Si es red, misma IP.
     const baseUrl = `${window.location.protocol}//${window.location.hostname}`;
-    const ohifPort = ':80'; // Según el docker-compose
+    const ohifPort = ':8080'; // Según el docker-compose (se movió a 8080 para evitar conflictos con apache)
     const ohifUrl = `${baseUrl}${ohifPort}/viewer?StudyInstanceUIDs=${study.studyInstanceUid}&token=${token}`;
     window.location.href = ohifUrl;
   };

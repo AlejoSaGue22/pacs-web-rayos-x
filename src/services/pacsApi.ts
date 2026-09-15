@@ -23,6 +23,15 @@ function buildQueryString(params: Record<string, any>): string {
   return qs ? `?${qs}` : '';
 }
 
+async function fetchWithAuth(url: string, options?: RequestInit): Promise<Response> {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    PacsApiService.logout();
+    window.location.href = '/login';
+  }
+  return res;
+}
+
 export class PacsApiService {
   // Auth & Active User Session
   static getCurrentUser(): User {
@@ -76,38 +85,38 @@ export class PacsApiService {
 
   // Dashboard Stats
   static async getDashboardStats() {
-    const res = await fetch(`${API_BASE}/dashboard/stats`, { headers: authHeaders() });
+    const res = await fetchWithAuth(`${API_BASE}/dashboard/stats`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error al cargar métricas del panel');
     return res.json();
   }
 
   static async getWeeklyStats() {
-    const res = await fetch(`${API_BASE}/dashboard/weekly-stats`, { headers: authHeaders() });
+    const res = await fetchWithAuth(`${API_BASE}/dashboard/weekly-stats`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error al cargar estadísticas semanales');
     return res.json();
   }
 
   // Patients
   static async getPatients(query?: PatientQuery): Promise<PaginatedResult<Patient>> {
-    const res = await fetch(`${API_BASE}/patients${buildQueryString(query || {})}`, { headers: authHeaders() });
+    const res = await fetchWithAuth(`${API_BASE}/patients${buildQueryString(query || {})}`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error al cargar pacientes');
     return res.json();
   }
 
   static async getPatientById(id: string): Promise<Patient & { studies: DicomStudy[] }> {
-    const res = await fetch(`${API_BASE}/patients/${id}`, { headers: authHeaders() });
+    const res = await fetchWithAuth(`${API_BASE}/patients/${id}`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Paciente no encontrado');
     return res.json();
   }
 
   static async getPatientStudies(patientId: string): Promise<DicomStudy[]> {
-    const res = await fetch(`${API_BASE}/patients/${patientId}/studies`, { headers: authHeaders() });
+    const res = await fetchWithAuth(`${API_BASE}/patients/${patientId}/studies`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error al cargar estudios del paciente');
     return res.json();
   }
 
   static async createPatient(patientData: Omit<Patient, 'id' | 'createdAt' | 'updatedAt' | 'isDeleted' | 'studyCount'>): Promise<Patient> {
-    const res = await fetch(`${API_BASE}/patients`, {
+    const res = await fetchWithAuth(`${API_BASE}/patients`, {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify(patientData),
@@ -117,7 +126,7 @@ export class PacsApiService {
   }
 
   static async updatePatient(id: string, updates: Partial<Patient>): Promise<Patient> {
-    const res = await fetch(`${API_BASE}/patients/${id}`, {
+    const res = await fetchWithAuth(`${API_BASE}/patients/${id}`, {
       method: 'PUT',
       headers: authHeaders(),
       body: JSON.stringify(updates),
@@ -127,7 +136,7 @@ export class PacsApiService {
   }
 
   static async deletePatient(id: string): Promise<boolean> {
-    const res = await fetch(`${API_BASE}/patients/${id}`, {
+    const res = await fetchWithAuth(`${API_BASE}/patients/${id}`, {
       method: 'DELETE',
       headers: authHeaders(),
     });
@@ -137,19 +146,19 @@ export class PacsApiService {
 
   // Studies
   static async getStudies(query?: StudyListQuery): Promise<PaginatedResult<DicomStudy>> {
-    const res = await fetch(`${API_BASE}/studies${buildQueryString(query || {})}`, { headers: authHeaders() });
+    const res = await fetchWithAuth(`${API_BASE}/studies${buildQueryString(query || {})}`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error al obtener estudios DICOM');
     return res.json();
   }
 
   static async getStudyById(id: string): Promise<DicomStudy> {
-    const res = await fetch(`${API_BASE}/studies/${id}`, { headers: authHeaders() });
+    const res = await fetchWithAuth(`${API_BASE}/studies/${id}`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Estudio no encontrado');
     return res.json();
   }
 
   static async updateStudyStatus(id: string, status: DicomStudy['status']): Promise<DicomStudy> {
-    const res = await fetch(`${API_BASE}/studies/${id}/status`, {
+    const res = await fetchWithAuth(`${API_BASE}/studies/${id}/status`, {
       method: 'PUT',
       headers: authHeaders(),
       body: JSON.stringify({ status }),
@@ -160,13 +169,13 @@ export class PacsApiService {
 
   // Orthanc DICOM Integration
   static async getOrthancStatus(): Promise<OrthancStatus> {
-    const res = await fetch(`${API_BASE}/orthanc/status`, { headers: authHeaders() });
+    const res = await fetchWithAuth(`${API_BASE}/orthanc/status`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error consultando el estado de Orthanc');
     return res.json();
   }
 
   static async syncOrthanc(): Promise<SyncResult> {
-    const res = await fetch(`${API_BASE}/orthanc/sync`, {
+    const res = await fetchWithAuth(`${API_BASE}/orthanc/sync`, {
       method: 'POST',
       headers: authHeaders(),
     });
@@ -175,27 +184,27 @@ export class PacsApiService {
   }
 
   static async getInstanceTags(instanceId: string) {
-    const res = await fetch(`${API_BASE}/orthanc/instances/${instanceId}/tags`, { headers: authHeaders() });
+    const res = await fetchWithAuth(`${API_BASE}/orthanc/instances/${instanceId}/tags`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error al obtener cabeceras DICOM de la instancia');
     return res.json();
   }
 
   // Audit Logs
   static async getAuditLogs(query?: AuditLogQuery): Promise<PaginatedResult<AuditLog>> {
-    const res = await fetch(`${API_BASE}/audit${buildQueryString(query || {})}`, { headers: authHeaders() });
+    const res = await fetchWithAuth(`${API_BASE}/audit${buildQueryString(query || {})}`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error consultando bitácora de auditoría');
     return res.json();
   }
 
   // PACS Config
   static async getPacsConfig(): Promise<PACSConfig> {
-    const res = await fetch(`${API_BASE}/config`, { headers: authHeaders() });
+    const res = await fetchWithAuth(`${API_BASE}/config`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error al obtener configuración');
     return res.json();
   }
 
   static async updatePacsConfig(config: Partial<PACSConfig>): Promise<PACSConfig> {
-    const res = await fetch(`${API_BASE}/config`, {
+    const res = await fetchWithAuth(`${API_BASE}/config`, {
       method: 'PUT',
       headers: authHeaders(),
       body: JSON.stringify(config),
@@ -206,13 +215,13 @@ export class PacsApiService {
 
   // Users
   static async getUsers(): Promise<User[]> {
-    const res = await fetch(`${API_BASE}/users`, { headers: authHeaders() });
+    const res = await fetchWithAuth(`${API_BASE}/users`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Error al obtener lista de usuarios');
     return res.json();
   }
 
   static async createUser(data: { name: string; email: string; role: string; password: string; avatar?: string }): Promise<User> {
-    const res = await fetch(`${API_BASE}/users`, {
+    const res = await fetchWithAuth(`${API_BASE}/users`, {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify(data),
@@ -223,7 +232,7 @@ export class PacsApiService {
   }
 
   static async updateUser(id: string, data: { name?: string; email?: string; role?: string; password?: string; avatar?: string }): Promise<User> {
-    const res = await fetch(`${API_BASE}/users/${id}`, {
+    const res = await fetchWithAuth(`${API_BASE}/users/${id}`, {
       method: 'PUT',
       headers: authHeaders(),
       body: JSON.stringify(data),
@@ -234,7 +243,7 @@ export class PacsApiService {
   }
 
   static async deleteUser(id: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/users/${id}`, {
+    const res = await fetchWithAuth(`${API_BASE}/users/${id}`, {
       method: 'DELETE',
       headers: authHeaders(),
     });
@@ -257,7 +266,7 @@ export class PacsApiService {
 
   static async triggerDownload(url: string, filename: string) {
     try {
-      const res = await fetch(url, { headers: authHeaders() });
+      const res = await fetchWithAuth(url, { headers: authHeaders() });
       if (!res.ok) throw new Error('Error en la descarga');
       const blob = await res.blob();
       const objectUrl = window.URL.createObjectURL(blob);
