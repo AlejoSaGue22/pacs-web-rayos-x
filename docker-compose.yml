@@ -51,6 +51,11 @@ services:
   #     WEBHOOK_SECRET: pacs-webhook-secret-2026
   #     PORT: 3000
   #     NODE_ENV: production
+  #     # En Docker el disco se monta aquí; en local Windows se usa C:/MiniPACS/estudios directo.
+  #     LOCAL_STORAGE_PATH: /data/estudios
+  #   volumes:
+  #     # Bind mount para que el contenedor escriba en el disco del PC, organizado por paciente.
+  #     - C:/MiniPACS/estudios:/data/estudios
   #   depends_on:
   #     - postgres
   #     - orthanc

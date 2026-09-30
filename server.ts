@@ -15,7 +15,6 @@ const require = createRequire(import.meta.url);
 const archiver = require('archiver');
 import * as http from 'http';
 import { Server } from 'socket.io';
-import { createProxyMiddleware } from 'http-proxy-middleware';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -466,6 +465,21 @@ async function startServer() {
     } catch (err) {
       console.error('Error fetching storage stats:', err);
       res.status(500).json({ error: 'Error al leer las estadísticas de almacenamiento' });
+    }
+  });
+
+  // Re-exporta a C:/MiniPACS/estudios los estudios en BD sin carpeta local
+  app.post('/api/storage/reexport', authenticate, authorize('Admin', 'Radiologo', 'Tecnico'), async (req, res) => {
+    try {
+      const result = await pacsStore.reexportMissingToDisk(
+        req.user!.userId,
+        req.user!.userName,
+        req.user!.userRole,
+      );
+      res.json({ success: true, ...result, stats: getLocalStorageStats() });
+    } catch (err) {
+      console.error('Error re-exportando a disco:', err);
+      res.status(500).json({ error: 'Error al re-exportar estudios al disco' });
     }
   });
 

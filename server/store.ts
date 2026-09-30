@@ -1,7 +1,8 @@
 import { PrismaClient } from '../src/generated/prisma/index.js';
 import { OrthancClient } from './orthancClient.js';
 import { parsePagination, buildOrderBy, buildPaginatedResult } from './pagination.js';
-import { exportStudyToLocalDisk } from './localDiskExporter.js';
+import { exportStudyToLocalDisk, resolveStudyDiskPath } from './localDiskExporter.js';
+import fs from 'node:fs';
 
 export const prisma = new PrismaClient();
 
@@ -247,6 +248,7 @@ class PacsStore {
   // --- Orthanc Synchronization ---
   async syncWithOrthanc(userId: string, userName: string, userRole: any) {
     let syncedCount = 0;
+    let exportedToDisk = 0;
     let online = false;
 
     try {
@@ -390,7 +392,7 @@ class PacsStore {
             const authHeader = `Basic ${token}`;
             const orthancUrl = process.env.ORTHANC_URL || 'http://localhost:8042';
 
-            await exportStudyToLocalDisk({
+            const diskPath = await exportStudyToLocalDisk({
               orthancStudyId,
               patientName,
               patientDocument: patientId,
@@ -402,6 +404,7 @@ class PacsStore {
               numberOfSeries: fullStudy.Series ? fullStudy.Series.length : 0,
               numberOfInstances: studyInstanceIds.length,
             }, orthancUrl, authHeader);
+            if (diskPath) exportedToDisk++;
           } catch (exportErr) {
             console.error(`[Sync] Error exportando estudio localmente:`, exportErr);
           }
@@ -431,9 +434,9 @@ class PacsStore {
     await this.addAuditLog({
       userId, userName, userRole,
       action: 'ORTHANC_SYNC',
-      description: `Sincronización con Servidor Orthanc. ${syncedCount} estudios nuevos importados.`,
+      description: `Sincronización con Servidor Orthanc. ${syncedCount} estudios nuevos importados (${exportedToDisk} respaldados en disco).`,
       ipAddress: '127.0.0.1',
-      details: `Servidor Orthanc: ${online ? 'en línea' : 'fuera de línea'}. Total estudios en BD: ${studyCount}.`,
+      details: `Servidor Orthanc: ${online ? 'en línea' : 'fuera de línea'}. Total estudios en BD: ${studyCount}. Respaldos en disco: ${exportedToDisk}.`,
     });
 
     return {
@@ -441,7 +444,71 @@ class PacsStore {
       timestamp: newSyncTime,
       syncedStudies: studyCount,
       newStudies: syncedCount,
+      exportedToDisk,
     };
+  }
+
+  /**
+   * Re-exporta al disco los estudios que están en BD pero sin carpeta local
+   * (p. ej. importados antes de activar el respaldo, o si se borró C:/MiniPACS).
+   * Idempotente: omite los que ya tienen carpeta.
+   */
+  async reexportMissingToDisk(userId: string, userName: string, userRole: any) {
+    const studies = await prisma.study.findMany({
+      orderBy: [{ studyDate: 'desc' }],
+      take: 500,
+    });
+    const token = Buffer.from(`${process.env.ORTHANC_USER}:${process.env.ORTHANC_PASS}`).toString('base64');
+    const authHeader = `Basic ${token}`;
+    const orthancUrl = process.env.ORTHANC_URL || 'http://localhost:8042';
+
+    let checked = 0;
+    let exported = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const s of studies) {
+      checked++;
+      const diskPath = resolveStudyDiskPath({
+        orthancStudyId: s.id,
+        patientName: s.patientName,
+        patientDocument: s.patientDocument,
+        studyDate: s.studyDate,
+        studyDescription: s.studyDescription,
+        accessionNumber: s.accessionNumber,
+        modality: s.modality,
+        studyInstanceUid: s.studyInstanceUid,
+        numberOfSeries: s.numberOfSeries,
+        numberOfInstances: s.numberOfInstances,
+      });
+      if (fs.existsSync(diskPath)) {
+        skipped++;
+        continue;
+      }
+      const result = await exportStudyToLocalDisk({
+        orthancStudyId: s.id,
+        patientName: s.patientName,
+        patientDocument: s.patientDocument,
+        studyDate: s.studyDate,
+        studyDescription: s.studyDescription,
+        accessionNumber: s.accessionNumber,
+        modality: s.modality,
+        studyInstanceUid: s.studyInstanceUid,
+        numberOfSeries: s.numberOfSeries,
+        numberOfInstances: s.numberOfInstances,
+      }, orthancUrl, authHeader);
+      if (result) exported++;
+      else failed++;
+    }
+
+    await this.addAuditLog({
+      userId, userName, userRole,
+      action: 'ORTHANC_SYNC',
+      description: `Re-exportación a disco: ${exported} restaurados, ${skipped} ya existían, ${failed} fallidos (de ${checked} revisados).`,
+      ipAddress: '127.0.0.1',
+    });
+
+    return { checked, exported, skipped, failed };
   }
 
   private async getInstanceIdsForStudy(studyId: string): Promise<string[]> {
