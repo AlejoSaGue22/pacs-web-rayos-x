@@ -4,6 +4,37 @@ import { parsePagination, buildOrderBy, buildPaginatedResult } from './paginatio
 
 export const prisma = new PrismaClient();
 
+// Cache en memoria del último C-ECHO por modalidad (no requiere migración).
+// echoStatus: 'UNKNOWN' = nunca probado, 'OK' = C-ECHO exitoso, 'FAILED' = falló.
+interface EchoCacheEntry {
+  status: 'UNKNOWN' | 'OK' | 'FAILED';
+  time: string;
+  error: string | null;
+}
+const echoCache = new Map<string, EchoCacheEntry>();
+
+function parseOrthancDate(raw: string): string | null {
+  // Orthanc devuelve fechas como "20260101T120000" en hora LOCAL del servidor Orthanc.
+  // No asumir Z (UTC): parsear como hora local y convertir a ISO.
+  if (!raw) return null;
+  if (raw.includes('T') && /^\d{8}T\d{6}/.test(raw)) {
+    const y = raw.slice(0, 4);
+    const m = raw.slice(4, 6);
+    const d = raw.slice(6, 8);
+    const hh = raw.slice(9, 11);
+    const mm = raw.slice(11, 13);
+    const ss = raw.slice(13, 15);
+    const parsed = new Date(`${y}-${m}-${d}T${hh}:${mm}:${ss}`);
+    if (!isNaN(parsed.getTime())) return parsed.toISOString();
+    return null;
+  }
+  const parsed = new Date(raw);
+  return isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+// IDs que nunca son modalidades reales (fallbacks de UI). Rechazarlos con mensaje claro.
+const INVALID_MODALITY_IDS = new Set(['', 'unknown', 'dicom device', 'dicom_device', 'n/d', '—', '-']);
+
 class PacsStore {
   // --- Patients ---
   async getPatients(query?: { search?: string; page?: number; pageSize?: number; sortBy?: string; sortOrder?: string }) {
@@ -441,21 +472,164 @@ class PacsStore {
   }
 
   // --- Orthanc Status & Config ---
+  /**
+   * Lista normalizada de modalidades DICOM registradas en Orthanc.
+   * Reutilizada por getOrthancStatus, testDicomEcho y GET /api/orthanc/modalities.
+   */
+  async listModalities() {
+    let modalitiesRaw: any = null;
+    try {
+      modalitiesRaw = await OrthancClient.getModalitiesExpand();
+    } catch {
+      modalitiesRaw = await OrthancClient.getModalities();
+    }
+    const entries: { id: string; detail: any; hasDetail: boolean }[] = [];
+    if (Array.isArray(modalitiesRaw)) {
+      for (const item of modalitiesRaw) {
+        if (typeof item === 'string' && item.trim() !== '') {
+          entries.push({ id: item.trim(), detail: {}, hasDetail: false });
+        } else if (item && typeof item === 'object') {
+          const id = String(item.SymbolicName || item.AET || item.ID || '').trim();
+          if (id) entries.push({ id, detail: item, hasDetail: true });
+        }
+      }
+    } else if (modalitiesRaw && typeof modalitiesRaw === 'object') {
+      for (const [id, detail] of Object.entries(modalitiesRaw)) {
+        if (!id || !id.trim()) continue;
+        entries.push({ id: id.trim(), detail: (detail as any) || {}, hasDetail: true });
+      }
+    }
+    return entries;
+  }
+
+  /**
+   * Último C-STORE real paginando /changes hasta Done (no solo los primeros 100).
+   */
+  async getLastStoreInfo() {
+    let lastStoreAt: string | null = null;
+    let lastStoreChangeType: string | null = null;
+    let lastSeq = 0;
+    try {
+      const { changes, last } = await OrthancClient.getAllRecentChanges(100, 10);
+      lastSeq = last;
+      const storeTypes = new Set(['NewInstance', 'NewStudy', 'NewSeries', 'StableStudy', 'StableSeries']);
+      let bestSeq = -1;
+      for (const c of changes) {
+        if (c && storeTypes.has(String(c.ChangeType))) {
+          const seq = typeof c.Seq === 'number' ? c.Seq : -1;
+          if (seq >= bestSeq) {
+            bestSeq = seq;
+            lastStoreChangeType = String(c.ChangeType);
+            lastStoreAt = parseOrthancDate(String(c.Date || '')) || lastStoreAt;
+          }
+        }
+      }
+    } catch {
+      lastStoreAt = null;
+      lastStoreChangeType = null;
+    }
+    return { lastStoreAt, lastStoreChangeType, lastSeq };
+  }
+
+  /**
+   * Verifica conectividad DICOM real con una modalidad mediante C-ECHO.
+   * No confunde "configurado" con "verificado": solo OK tras un echo exitoso.
+   * Valida el ID contra las modalidades registradas (nunca acepta "DICOM Device").
+   */
+  async testDicomEcho(modalityName: string, userId: string, userName: string, userRole: any) {
+    const startedAt = new Date().toISOString();
+    const cleanName = String(modalityName || '').trim();
+    const entries = await this.listModalities().catch(() => []);
+    const validIds = entries.map(e => e.id);
+    if (!cleanName || INVALID_MODALITY_IDS.has(cleanName.toLowerCase())) {
+      const msg = `ID de modalidad inválido "${modalityName}". Use un ID registrado en Orthanc (DicomModalities). Válidos: ${validIds.join(', ') || 'ninguno'}.`;
+      await this.addAuditLog({
+        userId, userName, userRole,
+        action: 'DICOM_ECHO',
+        description: `C-ECHO rechazado: ID inválido "${modalityName}".`,
+        ipAddress: '127.0.0.1',
+        details: msg,
+      });
+      return { success: false, modality: cleanName || String(modalityName), timestamp: startedAt, error: msg, validIds };
+    }
+    if (validIds.length > 0 && !validIds.includes(cleanName)) {
+      const msg = `Modalidad "${cleanName}" no registrada en Orthanc (DicomModalities). Válidos: ${validIds.join(', ')}. Revise orthanc.json.`;
+      await this.addAuditLog({
+        userId, userName, userRole,
+        action: 'DICOM_ECHO',
+        description: `C-ECHO fallido: modalidad "${cleanName}" no registrada.`,
+        ipAddress: '127.0.0.1',
+        details: msg,
+      });
+      return { success: false, modality: cleanName, timestamp: startedAt, error: msg, validIds, notFound: true as const };
+    }
+    try {
+      await OrthancClient.echoModality(cleanName);
+      echoCache.set(cleanName, { status: 'OK', time: startedAt, error: null });
+      await this.addAuditLog({
+        userId, userName, userRole,
+        action: 'DICOM_ECHO',
+        description: `C-ECHO exitoso a modalidad "${cleanName}". Equipo DICOM alcanzable.`,
+        ipAddress: '127.0.0.1',
+        details: `Modality: ${cleanName} — OK at ${startedAt}`,
+      });
+      return { success: true, modality: cleanName, timestamp: startedAt, error: null as string | null };
+    } catch (err: any) {
+      const msg = err?.name === 'TimeoutError' || String(err?.message || '').toLowerCase().includes('timeout')
+        ? `C-ECHO a "${cleanName}" agotó el tiempo de espera (60s). Verifique red, IP, puerto y que el equipo esté encendido.`
+        : (err?.message || 'Error desconocido en C-ECHO');
+      echoCache.set(cleanName, { status: 'FAILED', time: startedAt, error: msg });
+      await this.addAuditLog({
+        userId, userName, userRole,
+        action: 'DICOM_ECHO',
+        description: `C-ECHO fallido a modalidad "${cleanName}". Verificar red, IP, puerto y AETitle.`,
+        ipAddress: '127.0.0.1',
+        details: `Modality: ${cleanName} — FAILED: ${msg}`,
+      });
+      return { success: false, modality: cleanName, timestamp: startedAt, error: msg };
+    }
+  }
+
+  getEchoCache(): Record<string, EchoCacheEntry> {
+    return Object.fromEntries(echoCache.entries());
+  }
+
   async getOrthancStatus() {
     const config = await this.getPacsConfig();
     const configured = !!config?.isConfigured;
     const storedStatus = await prisma.orthancStatus.findFirst();
 
     let systemInfo: any = {};
-    let modalitiesData: any[] = [];
+    let modalityEntries: { id: string; detail: any; hasDetail: boolean }[] = [];
+    let lastStoreAt: string | null = null;
+    let lastStoreChangeType: string | null = null;
+    let orthancStudyIds: string[] = [];
     try {
       systemInfo = await OrthancClient.getSystem();
       if (configured) {
-        modalitiesData = await OrthancClient.getModalities();
+        try {
+          modalityEntries = await this.listModalities();
+        } catch {
+          modalityEntries = [];
+        }
+        try {
+          const info = await this.getLastStoreInfo();
+          lastStoreAt = info.lastStoreAt;
+          lastStoreChangeType = info.lastStoreChangeType;
+        } catch {
+          lastStoreAt = null;
+          lastStoreChangeType = null;
+        }
+        try {
+          const ids = await OrthancClient.getStudies();
+          if (Array.isArray(ids)) orthancStudyIds = ids.map((s: any) => String(typeof s === 'string' ? s : (s.ID || s)));
+        } catch {
+          orthancStudyIds = [];
+        }
       }
     } catch {
       systemInfo = {};
-      modalitiesData = [];
+      modalityEntries = [];
     }
 
     const online = !!(systemInfo.ApiVersion);
@@ -472,22 +646,35 @@ class PacsStore {
       ? Math.round((storageUsageBytes / (1024 * 1024)) * 10) / 10
       : 0;
 
-    const matchesConfiguredEquipment = (m: any) => {
-      const aet = String(m.AET || m.SymbolicName || '').trim();
-      const host = String(m.Host || '').trim();
+    const matchesConfiguredEquipment = (detail: any) => {
+      const aet = String(detail.AET || detail.SymbolicName || '').trim();
+      const host = String(detail.Host || '').trim();
       return (!!config.remoteAETitle && aet === config.remoteAETitle.trim())
         || (!!config.remoteIp && host === config.remoteIp.trim());
     };
 
-    const connectedEquipment = (configured && online && Array.isArray(modalitiesData))
-      ? modalitiesData.map((m: any) => ({
-        name: m.Type || m.SymbolicName || 'DICOM Device',
-        aetitle: m.AET || m.SymbolicName || '',
-        ip: m.Host || '',
-        port: m.Port || 0,
-        status: matchesConfiguredEquipment(m) ? 'ACTIVE' : 'IDLE',
-      }))
-      : [];
+    const connectedEquipment = (configured && online ? modalityEntries : []).map(({ id, detail, hasDetail }) => {
+      const isMatch = matchesConfiguredEquipment(detail);
+      const echo = echoCache.get(id);
+      return {
+        id,
+        name: (hasDetail && detail.Type) || id,
+        aetitle: detail.AET || detail.SymbolicName || '',
+        ip: detail.Host || '',
+        port: detail.Port || 0,
+        hasDetail,
+        // Compat: ACTIVE = coincide con configuración (NO verificado), IDLE = conocido no configurado.
+        status: isMatch ? 'ACTIVE' : 'IDLE',
+        isConfiguredMatch: isMatch,
+        echoStatus: echo?.status || 'UNKNOWN',
+        lastEchoTime: echo?.time || null,
+        lastEchoError: echo?.error || null,
+      };
+    });
+
+    const anyEchoOk = connectedEquipment.some(e => e.echoStatus === 'OK');
+    const configuredMatch = connectedEquipment.find(e => e.isConfiguredMatch);
+    const dicomVerified = !!(online && configured && (configuredMatch?.echoStatus === 'OK' || anyEchoOk));
 
     return {
       online,
@@ -503,6 +690,13 @@ class PacsStore {
       instanceCount,
       lastSyncTime: configured ? (storedStatus?.lastSyncTime || '') : '',
       connectedEquipment,
+      dicom: {
+        lastStoreAt,
+        lastStoreChangeType,
+        orthancStudyCount: orthancStudyIds.length,
+        totalModalities: connectedEquipment.length,
+        verified: dicomVerified,
+      },
     };
   }
 

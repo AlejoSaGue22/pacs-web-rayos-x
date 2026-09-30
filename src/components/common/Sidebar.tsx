@@ -19,6 +19,8 @@ interface SidebarProps {
   userRole: UserRole;
   unreadCount?: number;
   orthancOnline?: boolean;
+  dicomVerified?: boolean;
+  dicomLastStoreAt?: string | null;
   remoteAETitle?: string;
   isConfigured?: boolean;
 }
@@ -28,6 +30,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onTabChange,
   userRole,
   orthancOnline = false,
+  dicomVerified = false,
+  dicomLastStoreAt = null,
   remoteAETitle = '',
   isConfigured = false,
 }) => {
@@ -90,11 +94,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <div className="flex items-center justify-between text-[10px] text-slate-400 uppercase font-bold tracking-tight border-t border-slate-800/80 pt-2.5">
-          <span>Orthanc PACS</span>
+          <span>Orthanc REST</span>
           <span className={`flex items-center gap-1 font-semibold ${orthancOnline && isConfigured ? 'text-emerald-400' : 'text-rose-400'}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${orthancOnline && isConfigured ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
             {orthancOnline && isConfigured ? 'Connected' : (!isConfigured ? 'No Configurado' : 'Offline')}
           </span>
+        </div>
+        <div className="flex items-center justify-between text-[10px] text-slate-400 uppercase font-bold tracking-tight pt-1.5" title={dicomLastStoreAt ? `Último C-STORE: ${new Date(dicomLastStoreAt).toLocaleString()}` : 'Sin C-STORE registrado'}>
+          <span>Equipo DICOM</span>
+          {!isConfigured ? (
+            <span className="flex items-center gap-1 font-semibold text-slate-500">
+              <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+              Sin configurar
+            </span>
+          ) : !orthancOnline ? (
+            <span className="flex items-center gap-1 font-semibold text-rose-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+              No alcanzable
+            </span>
+          ) : dicomVerified ? (
+            <span className="flex items-center gap-1 font-semibold text-emerald-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Verificado
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 font-semibold text-amber-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              No verificado
+            </span>
+          )}
         </div>
       </div>
     </aside>

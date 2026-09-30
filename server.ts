@@ -303,6 +303,58 @@ async function startServer() {
     res.json(result);
   });
 
+  // Diagnóstico previsualizable por GET: IDs válidos de modalidades (DicomModalities).
+  // Nota: requiere Authorization Bearer; el navegador directo sin token devuelve 401.
+  // El C-ECHO es solo POST (el GET directo a /echo devuelve 404 por diseño REST).
+  app.get('/api/orthanc/modalities', authenticate, async (req, res) => {
+    try {
+      const status: any = await pacsStore.getOrthancStatus();
+      const modalities = (status.connectedEquipment || []).map((e: any) => ({
+        id: e.id,
+        name: e.name,
+        aetitle: e.aetitle,
+        ip: e.ip,
+        port: e.port,
+        hasDetail: e.hasDetail,
+        isConfiguredMatch: e.isConfiguredMatch,
+        echoStatus: e.echoStatus,
+        lastEchoTime: e.lastEchoTime,
+      }));
+      res.json({
+        online: status.online,
+        configured: status.configured,
+        validIds: modalities.map((m: any) => m.id),
+        modalities,
+        usage: {
+          echo: 'POST /api/orthanc/modalities/:id/echo con Authorization Bearer',
+          example: '/api/orthanc/modalities/mindray_digieye/echo',
+        },
+      });
+    } catch (err: any) {
+      res.status(502).json({ error: err?.message || 'Error listando modalidades' });
+    }
+  });
+
+  // Verificación DICOM real: C-ECHO contra una modalidad registrada en Orthanc.
+  // No confunde "configurado" con "verificado": solo OK tras echo exitoso.
+  app.post('/api/orthanc/modalities/:name/echo', authenticate, authorize('Admin', 'Radiologo', 'Tecnico'), async (req, res) => {
+    const { name } = req.params;
+    if (!name || !String(name).trim()) return res.status(400).json({ error: 'Nombre de modalidad requerido. Consulte GET /api/orthanc/modalities para IDs válidos.' });
+    try {
+      const result: any = await pacsStore.testDicomEcho(
+        name,
+        req.user!.userId,
+        req.user!.userName,
+        req.user!.userRole
+      );
+      if (result.success) return res.json(result);
+      if (result.notFound) return res.status(404).json(result);
+      return res.status(502).json(result);
+    } catch (err: any) {
+      return res.status(502).json({ success: false, modality: name, timestamp: new Date().toISOString(), error: err?.message || 'Error en C-ECHO' });
+    }
+  });
+
   app.get('/api/orthanc/instances/:id/tags', authenticate, async (req, res) => {
     const item = await pacsStore.getInstanceById(req.params.id);
     if (!item) {
@@ -628,18 +680,26 @@ async function startServer() {
   }
 
   // Polling for Orthanc Status via WebSockets
+  // Emite cuando cambia REST (online), verificación DICOM o último C-STORE.
   let lastOrthancOnline: boolean | null = null;
+  let lastDicomVerified: boolean | null = null;
+  let lastStoreAt: string | null = null;
   setInterval(async () => {
     try {
       const status = await pacsStore.getOrthancStatus();
-      if (status.online !== lastOrthancOnline) {
+      const dicomVerified = !!(status as any)?.dicom?.verified;
+      const storeAt = (status as any)?.dicom?.lastStoreAt || null;
+      if (status.online !== lastOrthancOnline || dicomVerified !== lastDicomVerified || storeAt !== lastStoreAt) {
         lastOrthancOnline = status.online;
+        lastDicomVerified = dicomVerified;
+        lastStoreAt = storeAt;
         io.emit('orthanc_status_changed', status);
       }
     } catch (e) {
       if (lastOrthancOnline !== false) {
         lastOrthancOnline = false;
-        io.emit('orthanc_status_changed', { online: false });
+        lastDicomVerified = false;
+        io.emit('orthanc_status_changed', { online: false, dicom: { verified: false, lastStoreAt: null } });
       }
     }
   }, 5000);

@@ -95,10 +95,34 @@ export interface AuditLog {
   userId: string;
   userName: string;
   userRole: UserRole;
-  action: 'LOGIN' | 'PATIENT_CREATE' | 'PATIENT_UPDATE' | 'PATIENT_DELETE' | 'STUDY_VIEW' | 'STUDY_DOWNLOAD' | 'ORTHANC_SYNC' | 'CONFIG_UPDATE' | 'ERROR';
+  action: 'LOGIN' | 'PATIENT_CREATE' | 'PATIENT_UPDATE' | 'PATIENT_DELETE' | 'STUDY_VIEW' | 'STUDY_DOWNLOAD' | 'ORTHANC_SYNC' | 'DICOM_ECHO' | 'CONFIG_UPDATE' | 'ERROR';
   description: string;
   ipAddress: string;
   details?: string;
+}
+
+export type DicomEchoStatus = 'UNKNOWN' | 'OK' | 'FAILED';
+
+export interface ConnectedEquipment {
+  id: string;
+  name: string;
+  aetitle: string;
+  ip: string;
+  port: number;
+  status: 'ACTIVE' | 'IDLE' | 'OFFLINE';
+  hasDetail?: boolean;
+  isConfiguredMatch?: boolean;
+  echoStatus?: DicomEchoStatus;
+  lastEchoTime?: string | null;
+  lastEchoError?: string | null;
+}
+
+export interface DicomConnectivity {
+  lastStoreAt: string | null;
+  lastStoreChangeType: string | null;
+  orthancStudyCount: number;
+  totalModalities: number;
+  verified: boolean;
 }
 
 export interface OrthancStatus {
@@ -114,13 +138,15 @@ export interface OrthancStatus {
   seriesCount: number;
   instanceCount: number;
   lastSyncTime: string;
-  connectedEquipment: {
-    name: string;
-    aetitle: string;
-    ip: string;
-    port: number;
-    status: 'ACTIVE' | 'IDLE' | 'OFFLINE';
-  }[];
+  connectedEquipment: ConnectedEquipment[];
+  dicom?: DicomConnectivity;
+}
+
+export interface DicomEchoResult {
+  success: boolean;
+  modality: string;
+  timestamp: string;
+  error: string | null;
 }
 
 export interface PACSConfig {

@@ -10,6 +10,8 @@ import {
 interface HeaderProps {
   currentUser: User;
   orthancOnline: boolean;
+  dicomVerified?: boolean;
+  dicomLastStoreAt?: string | null;
   isSyncing?: boolean;
   pacsConfig?: PACSConfig | null;
   onSyncOrthanc: () => void;
@@ -21,6 +23,8 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   currentUser,
   orthancOnline,
+  dicomVerified = false,
+  dicomLastStoreAt = null,
   isSyncing = false,
   pacsConfig,
   onSyncOrthanc,
@@ -28,6 +32,14 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const institutionName = pacsConfig?.institutionName || 'Mini PACS - Rayos X';
   const equipmentAET = pacsConfig?.isConfigured && pacsConfig?.remoteAETitle ? pacsConfig.remoteAETitle : 'Sin configurar';
+  const restConnected = orthancOnline && !!pacsConfig?.isConfigured;
+  const dicomTitle = !pacsConfig?.isConfigured
+    ? 'Equipo DICOM sin configurar'
+    : !orthancOnline
+      ? 'Orthanc no alcanzable: C-ECHO no disponible'
+      : dicomVerified
+        ? `C-ECHO verificado${dicomLastStoreAt ? ` — último C-STORE: ${new Date(dicomLastStoreAt).toLocaleString()}` : ''}`
+        : 'REST OK, pero equipo DICOM no verificado por C-ECHO';
   return (
     <header className="h-14 bg-white border-b border-slate-200 px-6 flex items-center justify-between z-30 sticky top-0 shadow-xs shrink-0 font-sans">
       <div className="flex items-center gap-4">
@@ -47,16 +59,30 @@ export const Header: React.FC<HeaderProps> = ({
 
         <div className="hidden md:flex items-center gap-2 px-2.5 py-1 bg-slate-100 rounded-full border border-slate-200 text-xs">
           <Server className="w-3.5 h-3.5 text-blue-600" />
-          <span className="text-slate-500 font-medium text-[11px]">Orthanc:</span>
-          {orthancOnline && pacsConfig?.isConfigured ? (
+          <span className="text-slate-500 font-medium text-[11px]">REST:</span>
+          {restConnected ? (
             <span className="flex items-center gap-1.5 text-emerald-600 font-semibold text-[11px]">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Connected (C-STORE)
+              Connected
             </span>
           ) : (
             <span className="text-rose-600 font-semibold text-[11px]">
               {!pacsConfig?.isConfigured ? 'No Configurado' : 'Disconnected'}
             </span>
+          )}
+          <span className="w-px h-3 bg-slate-300 mx-1" />
+          <span className="text-slate-500 font-medium text-[11px]" title={dicomTitle}>DICOM:</span>
+          {!pacsConfig?.isConfigured ? (
+            <span className="text-slate-500 font-semibold text-[11px]" title={dicomTitle}>Sin configurar</span>
+          ) : !orthancOnline ? (
+            <span className="text-rose-600 font-semibold text-[11px]" title={dicomTitle}>No alcanzable</span>
+          ) : dicomVerified ? (
+            <span className="flex items-center gap-1.5 text-emerald-600 font-semibold text-[11px]" title={dicomTitle}>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Verificado (C-ECHO)
+            </span>
+          ) : (
+            <span className="text-amber-600 font-semibold text-[11px]" title={dicomTitle}>No verificado</span>
           )}
         </div>
       </div>

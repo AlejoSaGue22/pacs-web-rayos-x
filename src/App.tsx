@@ -35,6 +35,7 @@ export default function App() {
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [echoingModality, setEchoingModality] = useState<string | null>(null);
 
   useEffect(() => {
     if (toastMessage) {
@@ -148,7 +149,6 @@ export default function App() {
     setToastMessage('Iniciando sincronización manual...');
     try {
       const result = await PacsApiService.syncOrthanc();
-      
       // Actualización optimista inmediata del timestamp sin esperar loadData
       setOrthancStatus(prev => prev
         ? { ...prev, lastSyncTime: result.timestamp, online: result.success }
@@ -167,6 +167,22 @@ export default function App() {
       setToastMessage(`Error al sincronizar con Orthanc: ${e.message || 'Error desconocido'}`);
     } finally {
       setIsSyncing(false);
+      setTimeout(() => setToastMessage(null), 4000);
+    }
+  };
+
+  const handleEchoModality = async (modalityName: string) => {
+    setEchoingModality(modalityName);
+    setToastMessage(`Ejecutando C-ECHO a "${modalityName}"...`);
+    try {
+      const result = await PacsApiService.echoModality(modalityName);
+      setToastMessage(`C-ECHO exitoso a "${result.modality}". Equipo DICOM verificado.`);
+      await loadData();
+    } catch (e: any) {
+      setToastMessage(`C-ECHO fallido a "${modalityName}": ${e.message || 'Error desconocido'}`);
+      await loadData();
+    } finally {
+      setEchoingModality(null);
       setTimeout(() => setToastMessage(null), 4000);
     }
   };
@@ -196,6 +212,8 @@ export default function App() {
       <Header
         currentUser={currentUser}
         orthancOnline={orthancStatus?.online ?? false}
+        dicomVerified={orthancStatus?.dicom?.verified ?? false}
+        dicomLastStoreAt={orthancStatus?.dicom?.lastStoreAt ?? null}
         pacsConfig={pacsConfig}
         isSyncing={isSyncing}
         onSyncOrthanc={handleSyncOrthanc}
@@ -218,6 +236,8 @@ export default function App() {
           onTabChange={tab => setActiveTab(tab)}
           userRole={currentUser.role}
           orthancOnline={orthancStatus?.online ?? false}
+          dicomVerified={orthancStatus?.dicom?.verified ?? false}
+          dicomLastStoreAt={orthancStatus?.dicom?.lastStoreAt ?? null}
           remoteAETitle={pacsConfig?.remoteAETitle || ''}
           isConfigured={pacsConfig?.isConfigured ?? false}
         />
@@ -261,7 +281,9 @@ export default function App() {
                 status={orthancStatus}
                 config={pacsConfig}
                 isSyncing={isSyncing}
+                echoingModality={echoingModality}
                 onSyncNow={handleSyncOrthanc}
+                onEchoModality={handleEchoModality}
               />
             ) : (
               <div className="flex items-center justify-center h-64 text-slate-400 text-sm">

@@ -109,7 +109,9 @@ export const AuditView: React.FC = () => {
             <option value="STUDY_VIEW">STUDY_VIEW - Visualización de Estudio</option>
             <option value="STUDY_DOWNLOAD">STUDY_DOWNLOAD - Descarga de Estudio</option>
             <option value="ORTHANC_SYNC">ORTHANC_SYNC - Sincronización DICOM</option>
+            <option value="DICOM_ECHO">DICOM_ECHO - Prueba C-ECHO a modalidad</option>
             <option value="CONFIG_UPDATE">CONFIG_UPDATE - Cambio Configuración</option>
+            <option value="ERROR">ERROR - Errores del sistema</option>
           </select>
         </div>
       </div>

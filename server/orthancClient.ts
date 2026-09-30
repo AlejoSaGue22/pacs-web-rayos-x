@@ -12,8 +12,8 @@ function authHeaders(): Record<string, string> {
   return { Authorization: `Basic ${token}` };
 }
 
-async function orthancGet(path: string) {
-  const res = await fetch(`${ORTHANC_URL}${path}`, { headers: authHeaders() });
+async function orthancGet(path: string, init?: RequestInit) {
+  const res = await fetch(`${ORTHANC_URL}${path}`, { headers: authHeaders(), ...init });
   if (!res.ok) throw new Error(`Orthanc GET ${path}: ${res.status} ${res.statusText}`);
   return res.json();
 }
@@ -69,6 +69,63 @@ export const OrthancClient = {
 
   getModalities() {
     return orthancGet('/modalities');
+  },
+
+  getModalitiesExpand() {
+    return orthancGet('/modalities?expand');
+  },
+
+  async echoModality(name: string, timeoutMs = 65000) {
+    const headers: Record<string, string> = {
+      ...authHeaders(),
+      'Content-Type': 'application/json',
+    };
+    // Timeout propio: DicomScuTimeout de Orthanc es 60s; abortamos a los 65s para no colgar Express.
+    const res = await fetch(`${ORTHANC_URL}/modalities/${encodeURIComponent(name)}/echo`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`C-ECHO a "${name}" falló: ${res.status} ${res.statusText}${text ? ` — ${text.slice(0, 200)}` : ''}`);
+    }
+    const text = await res.text().catch(() => '');
+    if (!text) return {};
+    try {
+      return JSON.parse(text);
+    } catch {
+      return {};
+    }
+  },
+
+  getChanges(limit = 100, since = 0) {
+    return orthancGet(`/changes?limit=${limit}&since=${since}`);
+  },
+
+  /**
+   * Recorre /changes paginando con `since=Last` hasta Done (máx. 10 páginas).
+   * Evita el bug de leer siempre los primeros 100 cambios (lastStoreAt congelado).
+   */
+  async getAllRecentChanges(pageSize = 100, maxPages = 10) {
+    const all: any[] = [];
+    let since = 0;
+    let last = 0;
+    for (let page = 0; page < maxPages; page++) {
+      const data = await orthancGet(`/changes?limit=${pageSize}&since=${since}`);
+      const changes = Array.isArray(data?.Changes) ? data.Changes : [];
+      all.push(...changes);
+      last = typeof data?.Last === 'number' ? data.Last : since + changes.length;
+      if (data?.Done !== false) break;
+      if (changes.length === 0) break;
+      since = last;
+    }
+    return { changes: all, last };
+  },
+
+  getStatistics() {
+    return orthancGet('/statistics');
   },
 
   getModality(name: string) {

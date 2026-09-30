@@ -1,4 +1,5 @@
 import { Patient, DicomStudy, User, AuditLog, OrthancStatus, PACSConfig, SyncResult } from '../types/pacs';
+import { DicomEchoResult } from '../types/pacs';
 import { PaginatedResult, PatientQuery, StudyListQuery, AuditLogQuery } from '../types/pagination';
 
 const API_BASE = '/api';
@@ -172,6 +173,40 @@ export class PacsApiService {
     });
     if (!res.ok) throw new Error('Error durante la sincronización con Orthanc');
     return res.json();
+  }
+
+  static async echoModality(name: string): Promise<DicomEchoResult> {
+    const cleanName = String(name || '').trim();
+    if (!cleanName) throw new Error('ID de modalidad requerido. Consulte la lista de modalidades válidas.');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 65000);
+    try {
+      const res = await fetch(`${API_BASE}/orthanc/modalities/${encodeURIComponent(cleanName)}/echo`, {
+        method: 'POST',
+        headers: authHeaders(),
+        signal: controller.signal,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.success === false) {
+        const validHint = Array.isArray((data as any).validIds) && (data as any).validIds.length
+          ? ` Válidos: ${(data as any).validIds.join(', ')}.`
+          : '';
+        throw new Error(`${data.error || `C-ECHO a "${cleanName}" falló (${res.status})`}${validHint}`);
+      }
+      return data as DicomEchoResult;
+    } catch (e: any) {
+      if (e?.name === 'AbortError') throw new Error(`C-ECHO a "${cleanName}" agotó el tiempo de espera (65s).`);
+      throw e;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  static async listModalities(): Promise<{ online: boolean; configured: boolean; validIds: string[]; modalities: any[] }> {
+    const res = await fetch(`${API_BASE}/orthanc/modalities`, { headers: authHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Error listando modalidades DICOM');
+    return data;
   }
 
   static async getInstanceTags(instanceId: string) {
