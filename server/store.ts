@@ -1,6 +1,7 @@
 import { PrismaClient } from '../src/generated/prisma/index.js';
 import { OrthancClient } from './orthancClient.js';
 import { parsePagination, buildOrderBy, buildPaginatedResult } from './pagination.js';
+import { exportStudyToLocalDisk } from './localDiskExporter.js';
 
 export const prisma = new PrismaClient();
 
@@ -382,6 +383,27 @@ class PacsStore {
             } catch {
               // skip individual series errors
             }
+          }
+
+          try {
+            const token = Buffer.from(`${process.env.ORTHANC_USER}:${process.env.ORTHANC_PASS}`).toString('base64');
+            const authHeader = `Basic ${token}`;
+            const orthancUrl = process.env.ORTHANC_URL || 'http://localhost:8042';
+
+            await exportStudyToLocalDisk({
+              orthancStudyId,
+              patientName,
+              patientDocument: patientId,
+              studyDate,
+              studyDescription: studyTags.StudyDescription || '',
+              accessionNumber: studyTags.AccessionNumber || `ACC-${orthancStudyId.slice(-8)}`,
+              modality: instanceTags.Modality || 'DX',
+              studyInstanceUid: studyTags.StudyInstanceUID || '',
+              numberOfSeries: fullStudy.Series ? fullStudy.Series.length : 0,
+              numberOfInstances: studyInstanceIds.length,
+            }, orthancUrl, authHeader);
+          } catch (exportErr) {
+            console.error(`[Sync] Error exportando estudio localmente:`, exportErr);
           }
 
           syncedCount++;

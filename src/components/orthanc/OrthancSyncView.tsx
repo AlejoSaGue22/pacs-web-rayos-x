@@ -30,6 +30,27 @@ export const OrthancSyncView: React.FC<OrthancSyncViewProps> = ({
   onEchoModality,
 }) => {
   const [justUpdated, setJustUpdated] = useState(false);
+  const [localStats, setLocalStats] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        const res = await fetch('/api/storage/stats', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setLocalStats(data);
+        }
+      } catch (err) {
+        console.error('Error fetching local stats', err);
+      }
+    };
+    fetchStats();
+    // Refetch when lastSyncTime changes
+  }, [status.lastSyncTime]);
 
   useEffect(() => {
     if (status.lastSyncTime) {
@@ -167,6 +188,20 @@ export const OrthancSyncView: React.FC<OrthancSyncViewProps> = ({
           </div>
           <div className="text-[11px] text-slate-500">
             {config.autoSyncIntervalSec > 0 ? `Sincronización automática cada ${config.autoSyncIntervalSec}s` : 'Sincronización automática no configurada'}
+          </div>
+        </div>
+
+        {/* Nueva Tarjeta: Respaldo Local (Disco) */}
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-1">
+          <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+            <span>Respaldo en Disco</span>
+            <HardDrive className="w-4 h-4 text-sky-600" />
+          </div>
+          <div className="text-2xl font-bold text-slate-800">
+            {localStats ? `${localStats.totalSizeMb} MB` : '—'}
+          </div>
+          <div className="text-[11px] text-slate-500">
+            {localStats ? `Locales: ${localStats.totalStudies} Estudios (${localStats.totalPatients} Pacientes)` : '...'}
           </div>
         </div>
       </div>

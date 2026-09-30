@@ -8,6 +8,8 @@ import { pacsStore, prisma } from './server/store.js';
 import { OrthancClient } from './server/orthancClient.js';
 import { authenticate, authorize, generateToken, AuthPayload } from './server/authMiddleware.js';
 import { generateStudyPdf } from './server/pdfReport.js';
+import { getLocalStorageStats } from './server/localDiskExporter.js';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const archiver = require('archiver');
@@ -444,11 +446,53 @@ async function startServer() {
 
       console.log(`[Webhook] Nuevo estudio recibido: ${accessionNumber} - ${patientName}`);
       res.json({ success: true, message: 'Study notification received' });
+
+      // Iniciar sincronización en segundo plano (esto llamará al exportador de disco local)
+      pacsStore.syncWithOrthanc('system', 'Orthanc Webhook', 'Admin')
+        .then(result => console.log(`[Webhook] Sincronización en segundo plano terminada: ${result.newStudies} nuevos`))
+        .catch(err => console.error(`[Webhook] Error en sincronización de fondo:`, err));
+
     } catch (err) {
       console.error('[Webhook] Error processing notification:', err);
       res.status(500).json({ error: 'Failed to process notification' });
     }
   });
+
+  // Local Storage Stats
+  app.get('/api/storage/stats', authenticate, (req, res) => {
+    try {
+      const stats = getLocalStorageStats();
+      res.json(stats);
+    } catch (err) {
+      console.error('Error fetching storage stats:', err);
+      res.status(500).json({ error: 'Error al leer las estadísticas de almacenamiento' });
+    }
+  });
+
+  // CORS Middleware específico para DICOMweb (necesario porque OHIF corre en otro puerto)
+  app.use('/api/dicom-web', (req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
+  // DICOMweb Proxy para OHIF
+  app.use('/api/dicom-web', authenticate, (req, res, next) => {
+    // Reemplazar el JWT de Mini PACS por el Basic Auth de Orthanc
+    const token = Buffer.from(`${process.env.ORTHANC_USER}:${process.env.ORTHANC_PASS}`).toString('base64');
+    req.headers['authorization'] = `Basic ${token}`;
+    next();
+  }, createProxyMiddleware({
+    target: process.env.ORTHANC_URL || 'http://localhost:8042',
+    changeOrigin: true,
+    pathRewrite: {
+      '^/': '/dicom-web/',
+    }
+  }));
 
   // Export Endpoints
   app.get('/api/studies/:id/export/pdf', authenticate, async (req, res) => {
