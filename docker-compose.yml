@@ -34,32 +34,32 @@ services:
       dockerfile: Dockerfile
     container_name: pacs-ohif
     ports:
-      - "80:80"
+      - "8080:80"
     restart: unless-stopped
 
-  # app:
-  #   build: .
-  #   container_name: pacs-app
-  #   ports:
-  #     - "3000:3000"
-  #   environment:
-  #     DATABASE_URL: postgres://pacs:pacs_secret@postgres:5432/pacs_rayos_x
-  #     JWT_SECRET: pacs-rayos-x-mindray-2026-secret-key
-  #     ORTHANC_URL: http://orthanc:8042
-  #     ORTHANC_USER: orthanc
-  #     ORTHANC_PASS: pacs_secure_2026
-  #     WEBHOOK_SECRET: pacs-webhook-secret-2026
-  #     PORT: 3000
-  #     NODE_ENV: production
-  #     # En Docker el disco se monta aquí; en local Windows se usa C:/MiniPACS/estudios directo.
-  #     LOCAL_STORAGE_PATH: /data/estudios
-  #   volumes:
-  #     # Bind mount para que el contenedor escriba en el disco del PC, organizado por paciente.
-  #     - C:/MiniPACS/estudios:/data/estudios
-  #   depends_on:
-  #     - postgres
-  #     - orthanc
-  #   restart: unless-stopped
+  app:
+    build: .
+    container_name: pacs-app
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://pacs:pacs_secret@postgres:5432/pacs_rayos_x
+      JWT_SECRET: pacs-rayos-x-mindray-2026-secret-key
+      ORTHANC_URL: http://orthanc:8042
+      ORTHANC_USER: orthanc
+      ORTHANC_PASS: pacs_secure_2026
+      WEBHOOK_SECRET: pacs-webhook-secret-2026
+      PORT: 3000
+      NODE_ENV: production
+      # En Docker el disco se monta aquí; en local Windows se usa C:/MiniPACS/estudios directo.
+      LOCAL_STORAGE_PATH: /data/estudios
+    volumes:
+      # Bind mount para que el contenedor escriba en el disco del PC, organizado por paciente.
+      - C:/MiniPACS/estudios:/data/estudios
+    depends_on:
+      - postgres
+      - orthanc
+    restart: unless-stopped
 
 volumes:
   pgdata:

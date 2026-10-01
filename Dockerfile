@@ -1,41 +1,38 @@
+# 1. Build environment
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copiar archivos de dependencias
-COPY package.json package-lock.json ./
-COPY prisma ./prisma/
+# Install dependencies
+COPY package*.json ./
+RUN npm ci
 
-# Instalar todas las dependencias (incluyendo devDependencies para el build)
-RUN npm install
-
-# Copiar el resto del código
+# Copy source code
 COPY . .
 
-# Generar el cliente de Prisma
-RUN npx prisma generate
-
-# Construir el frontend (Vite) y backend (esbuild)
+# Build the Vite React frontend
 RUN npm run build
 
-# --- Etapa de Producción ---
+# 2. Production environment
 FROM node:20-alpine
 
 WORKDIR /app
 
-# Instalar solo dependencias de producción
-COPY package.json package-lock.json ./
-COPY prisma ./prisma/
-RUN npm install --omit=dev
-RUN npx prisma generate
+# Copy package info and install only production dependencies
+COPY package*.json ./
+RUN npm ci --only=production
 
-# Copiar los archivos compilados desde la etapa anterior
+# Copy compiled frontend and backend source
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/server ./server
+COPY --from=builder /app/server.ts ./server.ts
+COPY --from=builder /app/prisma ./prisma
 
-# Variables de entorno por defecto
-ENV NODE_ENV=production
-ENV PORT=3000
-
+# Expose the API and Web port
 EXPOSE 3000
 
-CMD ["npm", "run", "start"]
+# Setup environment variables
+ENV NODE_ENV=production
+
+# Start the Node.js server using tsx
+CMD ["npx", "tsx", "server.ts"]

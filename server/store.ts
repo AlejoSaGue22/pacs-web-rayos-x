@@ -544,12 +544,23 @@ class PacsStore {
     return buildPaginatedResult(items, total, page, pageSize);
   }
 
-  async addAuditLog(entry: { userId: string; userName: string; userRole: any; action: string; description: string; ipAddress: string; details?: string }) {
+  async addAuditLog(entry: { userId: string | null; userName: string; userRole: any; action: string; description: string; ipAddress: string; details?: string }) {
+    // userId tiene FK a User: 'system' u otros IDs inexistentes rompen el sync automático (P2003).
+    // Se valida y se cae a null (columna nullable) para actores de sistema/webhook/auto.
+    let safeUserId: string | null = entry.userId || null;
+    if (safeUserId) {
+      try {
+        const exists = await prisma.user.findUnique({ where: { id: safeUserId }, select: { id: true } });
+        if (!exists) safeUserId = null;
+      } catch {
+        safeUserId = null;
+      }
+    }
     return prisma.auditLog.create({
       data: {
         id: `aud-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         timestamp: new Date().toISOString(),
-        userId: entry.userId,
+        userId: safeUserId,
         userName: entry.userName,
         userRole: entry.userRole || 'Admin',
         action: entry.action,
@@ -728,9 +739,18 @@ class PacsStore {
     const seriesCount = await prisma.series.count();
     const instanceCount = await prisma.instance.count();
 
-    const storageUsageBytes = systemInfo.DiskSize
+    // /system no trae DiskSize: usar /statistics (TotalDiskSize) como fuente real.
+    let storageUsageBytes = systemInfo.DiskSize
       ? parseInt(systemInfo.DiskSize, 10)
       : 0;
+    if (!storageUsageBytes && online) {
+      try {
+        const stats: any = await OrthancClient.getStatistics();
+        const raw = stats?.TotalDiskSize ?? stats?.TotalUncompressedSize ?? 0;
+        const parsed = typeof raw === 'string' ? parseInt(raw, 10) : Number(raw);
+        if (!isNaN(parsed) && parsed > 0) storageUsageBytes = parsed;
+      } catch { /* deja 0 si Orthanc no responde statistics */ }
+    }
     const storageUsageMb = storageUsageBytes
       ? Math.round((storageUsageBytes / (1024 * 1024)) * 10) / 10
       : 0;
@@ -897,7 +917,10 @@ class PacsStore {
   }
 
   async getWeeklyStats() {
+    const toLocalKey = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const today = new Date();
+    const todayKey = toLocalKey(today);
     const dayOfWeek = today.getDay();
     const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
     const monday = new Date(today);
@@ -909,13 +932,16 @@ class PacsStore {
     for (let i = 0; i < 7; i++) {
       const d = new Date(monday);
       d.setDate(monday.getDate() + i);
-      const key = d.toISOString().slice(0, 10);
-      const label = i === dayOfWeek - (dayOfWeek === 0 ? -6 : 1) ? 'Hoy' : days[i];
+      const key = toLocalKey(d);
+      const next = new Date(d);
+      next.setDate(d.getDate() + 1);
+      const nextKey = toLocalKey(next);
+      const label = key === todayKey ? 'Hoy' : days[i];
       const count = await prisma.study.count({
         where: {
           studyDate: {
-            gte: d.toISOString().slice(0, 10),
-            lt: new Date(d.getTime() + 86400000).toISOString().slice(0, 10),
+            gte: key,
+            lt: nextKey,
           },
         },
       });

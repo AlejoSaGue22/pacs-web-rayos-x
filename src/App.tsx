@@ -100,6 +100,11 @@ export default function App() {
       setOrthancStatus(prev => prev ? { ...prev, ...newStatus } : newStatus as OrthancStatus);
     });
 
+    // Auto-sync (backend cada N seg) o webhook (nuevo C-STORE): refrescar datos sin clic manual.
+    socket.on('orthanc_sync_completed', () => {
+      loadData();
+    });
+
     return () => {
       socket.disconnect();
     };
@@ -127,13 +132,12 @@ export default function App() {
 
   const handleOpenViewer = (study: DicomStudy) => {
     const token = localStorage.getItem('pacs_token');
-    const port = window.location.port ? `:${window.location.port}` : '';
     // En desarrollo local (vite 3000), asumimos que OHIF corre en el 80.
     // Si estamos en localhost, abrimos el localhost:80. Si es red, misma IP.
     const baseUrl = `${window.location.protocol}//${window.location.hostname}`;
     const ohifPort = ':8080'; // Según el docker-compose (se movió a 8080 para evitar conflictos con apache)
     const ohifUrl = `${baseUrl}${ohifPort}/viewer?StudyInstanceUIDs=${study.studyInstanceUid}&token=${token}`;
-    window.location.href = ohifUrl;
+    window.open(ohifUrl, '_blank', 'noopener');
   };
 
   const handleQuickSearch = (term: string) => {

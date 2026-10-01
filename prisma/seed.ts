@@ -20,17 +20,17 @@ async function main() {
 
   // Users (demo accounts for testing different roles)
   await Promise.all([
-    prisma.user.create({ data: { id: 'usr-001', name: 'Dr. Alejandro Morales', email: 'amorales@rayosx.med.co', role: 'Admin', passwordHash: hash, avatar: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=150&auto=format&fit=crop&q=80', lastLogin: null } }),
-    prisma.user.create({ data: { id: 'usr-002', name: 'Dra. Patricia Gómez', email: 'pgomez@rayosx.med.co', role: 'Radiologo', passwordHash: hash, avatar: 'https://images.unsplash.com/photo-1594824813566-88855ce78906?w=150&auto=format&fit=crop&q=80', lastLogin: null } }),
-    prisma.user.create({ data: { id: 'usr-003', name: 'Téc. Fernando Ruiz', email: 'fruiz@rayosx.med.co', role: 'Tecnico', passwordHash: hash, avatar: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?w=150&auto=format&fit=crop&q=80', lastLogin: null } }),
-    prisma.user.create({ data: { id: 'usr-004', name: 'Lic. Laura Restrepo', email: 'lrestrepo@rayosx.med.co', role: 'Consulta', passwordHash: hash, avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80', lastLogin: null } }),
+    prisma.user.create({ data: { id: 'usr-001', name: 'Administrador', email: 'admin@rayosx.med.co', role: 'Admin', passwordHash: hash, avatar: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=150&auto=format&fit=crop&q=80', lastLogin: null } }),
+    prisma.user.create({ data: { id: 'usr-002', name: 'Radiologo', email: 'radiologo@rayosx.med.co', role: 'Radiologo', passwordHash: hash, avatar: 'https://images.unsplash.com/photo-1594824813566-88855ce78906?w=150&auto=format&fit=crop&q=80', lastLogin: null } }),
+    prisma.user.create({ data: { id: 'usr-003', name: 'Tecnico', email: 'tecnico@rayosx.med.co', role: 'Tecnico', passwordHash: hash, avatar: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?w=150&auto=format&fit=crop&q=80', lastLogin: null } }),
+    prisma.user.create({ data: { id: 'usr-004', name: 'Consulta', email: 'consulta@rayosx.med.co', role: 'Consulta', passwordHash: hash, avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80', lastLogin: null } }),
   ]);
 
   console.log('✓ Usuarios demo creados (password: pacs2026)');
-  console.log('  - amorales@rayosx.med.co (Admin)');
-  console.log('  - pgomez@rayosx.med.co (Radiologo)');
-  console.log('  - fruiz@rayosx.med.co (Tecnico)');
-  console.log('  - lrestrepo@rayosx.med.co (Consulta)');
+  console.log('  - admin@rayosx.med.co (Admin)');
+  console.log('  - radiologo@rayosx.med.co (Radiologo)');
+  console.log('  - tecnico@rayosx.med.co (Tecnico)');
+  console.log('  - consulta@rayosx.med.co (Consulta)');
 
   // PacsConfig (starts empty, admin must configure it)
   await prisma.pacsConfig.create({

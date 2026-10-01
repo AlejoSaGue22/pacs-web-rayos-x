@@ -1,4 +1,15 @@
 import 'dotenv/config';
+
+// Silencia solo el DeprecationWarning DEP0060 (util._extend) que emite una
+// dependencia vieja (p. ej. cadena de archiver). No es un error ni viene de
+// nuestro código; solo ensucia los logs del AutoSync.
+const _emitWarning = process.emitWarning.bind(process);
+(process as any).emitWarning = (warning: any, ...args: any[]) => {
+  const code = typeof warning === 'object' ? warning?.code : undefined;
+  const msg = typeof warning === 'string' ? warning : warning?.message || '';
+  if (code === 'DEP0060' || msg.includes('util._extend')) return;
+  return (_emitWarning as any)(warning, ...args);
+};
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -38,6 +49,29 @@ async function startServer() {
     cors: { origin: '*' }
   });
   const PORT = parseInt(process.env.PORT || '3000', 10);
+
+  // Lock global para no solapar sincronizaciones (manual, webhook, auto-sync).
+  let syncInProgress = false;
+  async function triggerSync(source: 'manual' | 'webhook' | 'auto'): Promise<any> {
+    if (syncInProgress) {
+      console.log(`[Sync:${source}] Omitida: ya hay una sincronización en curso`);
+      return { skipped: true, source };
+    }
+    syncInProgress = true;
+    try {
+      const actor = source === 'auto' ? 'Auto Sync' : source === 'webhook' ? 'Orthanc Webhook' : 'Manual';
+      const result = await pacsStore.syncWithOrthanc('system', actor, 'Admin');
+      // Avisar al frontend para que refresque listas y el timestamp.
+      try {
+        const status = await pacsStore.getOrthancStatus();
+        io.emit('orthanc_status_changed', status);
+      } catch { /* no romper el sync por el emit */ }
+      io.emit('orthanc_sync_completed', { ...result, source });
+      return result;
+    } finally {
+      syncInProgress = false;
+    }
+  }
 
   app.use(express.json());
 
@@ -94,17 +128,23 @@ async function startServer() {
 
   // Dashboard Stats
   app.get('/api/dashboard/stats', authenticate, async (req, res) => {
-    const todayStr = new Date().toISOString().slice(0, 10);
+    // Fecha LOCAL del servidor (no UTC): studyDate se guarda como YYYY-MM-DD local
+    // desde el DICOM. Con toISOString() el "hoy" fallaba según zona horaria.
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const monthStr = todayStr.slice(0, 7); // YYYY-MM
 
     const [totalPatients, studiesToday, studiesMonth, modalityCounts, statusCounts,
            recentStudies, recentAudit, orthanc] = await Promise.all([
       prisma.patient.count({ where: { isDeleted: false } }),
       prisma.study.count({ where: { studyDate: todayStr } }),
-      prisma.study.count(),
+      prisma.study.count({ where: { studyDate: { gte: `${monthStr}-01`, lte: todayStr } } }),
       prisma.study.groupBy({ by: ['modality'], _count: { modality: true } }),
       prisma.study.groupBy({ by: ['status'], _count: { status: true } }),
       prisma.study.findMany({
-        orderBy: [{ studyDate: 'desc' }, { studyTime: 'desc' }],
+        // Orden de llegada real (createdAt = momento del sync), no fecha DICOM:
+        // si la modalidad envía StudyDate vieja/vacía, igual aparece primero.
+        orderBy: [{ createdAt: 'desc' }],
         take: 5,
         include: { series: { include: { instances: true } } },
       }),
@@ -296,11 +336,18 @@ async function startServer() {
   });
 
   app.post('/api/orthanc/sync', authenticate, authorize('Admin', 'Radiologo', 'Tecnico'), async (req, res) => {
-    const result = await pacsStore.syncWithOrthanc(
-      req.user!.userId,
-      req.user!.userName,
-      req.user!.userRole
-    );
+    const result = await triggerSync('manual');
+    // Registrar quién disparó el sync manual (el sync automático ya audita por dentro).
+    if (!result?.skipped) {
+      await pacsStore.addAuditLog({
+        userId: req.user!.userId,
+        userName: req.user!.userName,
+        userRole: req.user!.userRole,
+        action: 'ORTHANC_SYNC_MANUAL',
+        description: `Sincronización manual disparada por ${req.user!.userName}`,
+        ipAddress: req.ip || '127.0.0.1',
+      }).catch(() => {});
+    }
     res.json(result);
   });
 
@@ -419,18 +466,23 @@ async function startServer() {
     const secret = req.headers['x-webhook-secret'];
     const expectedSecret = process.env.WEBHOOK_SECRET;
     if (!expectedSecret) {
+      console.warn('[Webhook] Rechazado: WEBHOOK_SECRET no configurado en backend');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
     if (secret !== expectedSecret) {
+      console.warn(`[Webhook] Secreto inválido desde ${req.ip || 'desconocido'}`);
       return res.status(401).json({ error: 'Invalid webhook secret' });
     }
 
     const { event, orthancStudyId, accessionNumber, patientName, patientId } = req.body;
 
     if (event !== 'new_study') {
+      console.warn(`[Webhook] Evento desconocido: ${event}`);
       return res.status(400).json({ error: 'Unknown event type' });
     }
+
+    console.log(`[Webhook] Nuevo estudio notificado: ${accessionNumber || orthancStudyId} - ${patientName || ''} (study=${orthancStudyId})`);
 
     try {
       await pacsStore.addAuditLog({
@@ -443,17 +495,18 @@ async function startServer() {
         details: `Study ID: ${orthancStudyId}, Patient ID: ${patientId}`,
       });
 
-      console.log(`[Webhook] Nuevo estudio recibido: ${accessionNumber} - ${patientName}`);
       res.json({ success: true, message: 'Study notification received' });
 
       // Iniciar sincronización en segundo plano (esto llamará al exportador de disco local)
-      pacsStore.syncWithOrthanc('system', 'Orthanc Webhook', 'Admin')
+      // Usa el lock global para no solaparse con el auto-sync periódico.
+      triggerSync('webhook')
         .then(result => console.log(`[Webhook] Sincronización en segundo plano terminada: ${result.newStudies} nuevos`))
         .catch(err => console.error(`[Webhook] Error en sincronización de fondo:`, err));
 
     } catch (err) {
       console.error('[Webhook] Error processing notification:', err);
-      res.status(500).json({ error: 'Failed to process notification' });
+      // Si ya se envió respuesta, no intentar enviar otra.
+      if (!res.headersSent) res.status(500).json({ error: 'Failed to process notification' });
     }
   });
 
@@ -761,6 +814,26 @@ async function startServer() {
       }
     }
   }, 5000);
+
+  // Sincronización automática Orthanc -> BD según PACSConfig.autoSyncIntervalSec.
+  // Sin esto, el texto "Sincronización automática cada 60s" del frontend no hacía nada.
+  setInterval(async () => {
+    try {
+      const config: any = await pacsStore.getPacsConfig().catch(() => null);
+      const intervalSec = Number(config?.autoSyncIntervalSec || 0);
+      if (!intervalSec || intervalSec <= 0) return;
+      const effectiveSec = Math.max(10, intervalSec); // piso de 10s para no saturar Orthanc
+      const stored: any = await prisma.orthancStatus.findFirst().catch(() => null);
+      const lastSync = stored?.lastSyncTime ? new Date(stored.lastSyncTime).getTime() : 0;
+      if (Date.now() - lastSync < effectiveSec * 1000) return;
+      if (syncInProgress) return;
+      console.log(`[AutoSync] Disparando sincronización periódica (cada ${effectiveSec}s)`);
+      const result = await triggerSync('auto');
+      console.log(`[AutoSync] Terminada: ${result?.newStudies ?? 0} nuevos`);
+    } catch (err) {
+      console.error('[AutoSync] Error:', err);
+    }
+  }, 10000);
 
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`[Mini PACS Web Server] Running at http://0.0.0.0:${PORT}`);
