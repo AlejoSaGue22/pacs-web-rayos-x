@@ -60,6 +60,7 @@ services:
       - postgres
       - orthanc
     restart: unless-stopped
+    command: sh -c "npx prisma generate && npx prisma db push && npx tsx server.ts"
 
 volumes:
   pgdata:
