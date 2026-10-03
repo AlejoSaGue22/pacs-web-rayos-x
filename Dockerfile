@@ -10,7 +10,10 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build the Vite React frontend
+# Generate Prisma Client
+RUN npx prisma generate
+
+# Build the Vite React frontend and backend
 RUN npm run build
 
 # 2. Production environment
