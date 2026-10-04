@@ -19,7 +19,7 @@ import { pacsStore, prisma } from './server/store.js';
 import { OrthancClient } from './server/orthancClient.js';
 import { authenticate, authorize, generateToken, AuthPayload } from './server/authMiddleware.js';
 import { generateStudyPdf } from './server/pdfReport.js';
-import { getLocalStorageStats } from './server/localDiskExporter.js';
+import { getLocalDiskUsageMb, getStorageBase } from './server/localDiskExporter.js';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
@@ -511,10 +511,36 @@ async function startServer() {
   });
 
   // Local Storage Stats
-  app.get('/api/storage/stats', authenticate, (req, res) => {
+  app.get('/api/storage/stats', authenticate, async (req, res) => {
     try {
-      const stats = getLocalStorageStats();
-      res.json(stats);
+      const storagePath = getStorageBase();
+      const totalPatients = await prisma.patient.count({ where: { isDeleted: false } });
+      const totalStudies = await prisma.study.count();
+      
+      const patientsDb = await prisma.patient.findMany({
+        where: { isDeleted: false },
+        select: {
+          firstName: true,
+          lastName: true,
+          _count: {
+            select: { studies: true }
+          }
+        }
+      });
+      const patients = patientsDb.map(p => ({
+        name: `${p.lastName} ${p.firstName}`.trim(),
+        studyCount: p._count.studies
+      }));
+
+      const totalSizeMb = await getLocalDiskUsageMb();
+
+      res.json({
+        storagePath,
+        totalPatients,
+        totalStudies,
+        totalSizeMb,
+        patients
+      });
     } catch (err) {
       console.error('Error fetching storage stats:', err);
       res.status(500).json({ error: 'Error al leer las estadísticas de almacenamiento' });
@@ -529,7 +555,8 @@ async function startServer() {
         req.user!.userName,
         req.user!.userRole,
       );
-      res.json({ success: true, ...result, stats: getLocalStorageStats() });
+      // Solo devolvemos la cantidad de exportados. El frontend volverá a llamar a /api/storage/stats
+      res.json({ success: true, ...result });
     } catch (err) {
       console.error('Error re-exportando a disco:', err);
       res.status(500).json({ error: 'Error al re-exportar estudios al disco' });

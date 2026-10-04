@@ -1,4 +1,4 @@
-﻿/**
+/**
  * localDiskExporter.ts
  * Exporta estudios DICOM desde Orthanc al disco local del PC,
  * organizados por paciente y fecha de estudio.
@@ -41,26 +41,23 @@ export function sanitizeFolderName(text: string): string {
     .slice(0, 60);
 }
 
-export function buildPatientFolderName(patientName: string, patientDocument: string): string {
-  const parts = (patientName || '').split('^');
+export function buildStudyDirectoryPath(study: StudyExportInfo): string {
+  const storageBase = getStorageBase();
+  const dateStr = study.studyDate ? study.studyDate.slice(0, 10) : new Date().toISOString().slice(0, 10);
+  const year = dateStr.slice(0, 4);
+  const month = dateStr.slice(5, 7);
+
+  const parts = (study.patientName || '').split('^');
   const lastName = sanitizeFolderName(parts[0] || 'PACIENTE');
   const firstName = sanitizeFolderName(parts[1] || '');
-  const doc = sanitizeFolderName(patientDocument || 'SIN_DOC');
-  return firstName ? `${lastName}__${firstName}_${doc}` : `${lastName}_${doc}`;
-}
+  const patientBase = firstName ? `${lastName}_${firstName}` : lastName;
 
-export function buildStudyFolderName(
-  studyDate: string,
-  studyDescription: string,
-  modality?: string,
-  accessionNumber?: string,
-): string {
-  const date = studyDate ? studyDate.slice(0, 10) : new Date().toISOString().slice(0, 10);
-  const desc = sanitizeFolderName(studyDescription || 'ESTUDIO_DICOM');
-  const mod = modality && modality.trim() ? sanitizeFolderName(modality).slice(0, 10) : '';
-  const acc = accessionNumber && accessionNumber.trim() ? sanitizeFolderName(accessionNumber).slice(0, 30) : '';
-  const suffix = [mod, acc].filter(Boolean).join('_');
-  return suffix ? `${date}_${desc}_${suffix}` : `${date}_${desc}`;
+  const desc = sanitizeFolderName(study.studyDescription || 'ESTUDIO');
+  const mod = study.modality && study.modality.trim() ? sanitizeFolderName(study.modality).slice(0, 10) : 'DX';
+  const acc = study.accessionNumber && study.accessionNumber.trim() ? sanitizeFolderName(study.accessionNumber).slice(0, 30) : '';
+
+  const studyDirName = [patientBase, desc, mod, acc].filter(Boolean).join('_');
+  return path.join(storageBase, year, month, studyDirName);
 }
 
 export interface StudyExportInfo {
@@ -81,16 +78,8 @@ export async function exportStudyToLocalDisk(
   orthancUrl: string,
   authHeader: string,
 ): Promise<string | null> {
-  const storageBase = getStorageBase();
   try {
-    const patientFolder = buildPatientFolderName(study.patientName, study.patientDocument);
-    const studyFolder = buildStudyFolderName(
-      study.studyDate,
-      study.studyDescription,
-      study.modality,
-      study.accessionNumber,
-    );
-    const targetDir = path.join(storageBase, patientFolder, studyFolder);
+    const targetDir = buildStudyDirectoryPath(study);
 
     if (fs.existsSync(targetDir)) {
       console.log(`[LocalExport] Ya existe: ${targetDir} — omitido.`);
@@ -132,6 +121,33 @@ export async function exportStudyToLocalDisk(
       console.warn('[LocalExport] No se pudieron extraer los .dcm:', zipErr);
     }
 
+    try {
+      // Intentar extraer imágenes JPG visibles para el radiólogo
+      const instancesRes = await fetch(`${orthancUrl}/studies/${study.orthancStudyId}/instances`, { headers: { Authorization: authHeader } });
+      if (instancesRes.ok) {
+        const instances = await instancesRes.json() as any[];
+        let imgCount = 0;
+        const imagesDir = path.join(targetDir, 'imagenes');
+        if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir);
+
+        for (const inst of instances) {
+          try {
+            const previewRes = await fetch(`${orthancUrl}/instances/${inst.ID}/preview`, { headers: { Authorization: authHeader } });
+            if (previewRes.ok) {
+              const imgBuffer = Buffer.from(await previewRes.arrayBuffer());
+              fs.writeFileSync(path.join(imagesDir, `imagen_${imgCount + 1}.jpg`), imgBuffer);
+              imgCount++;
+            }
+          } catch (e) {}
+        }
+        if (imgCount > 0) {
+          console.log(`[LocalExport] ${imgCount} imagenes JPG extraidas y guardadas para visualización`);
+        }
+      }
+    } catch (jpgErr) {
+      console.warn('[LocalExport] Error al generar las imagenes JPG:', jpgErr);
+    }
+
     const metadata = {
       exportadoEn: new Date().toISOString(),
       rutaLocal: targetDir,
@@ -158,58 +174,32 @@ export async function exportStudyToLocalDisk(
 }
 
 export function resolveStudyDiskPath(study: StudyExportInfo): string {
-  const storageBase = getStorageBase();
-  return path.join(
-    storageBase,
-    buildPatientFolderName(study.patientName, study.patientDocument),
-    buildStudyFolderName(study.studyDate, study.studyDescription, study.modality, study.accessionNumber),
-  );
+  return buildStudyDirectoryPath(study);
 }
 
-export function getLocalStorageStats(): {
-  storagePath: string;
-  totalPatients: number;
-  totalStudies: number;
-  totalSizeMb: number;
-  patients: { name: string; studyCount: number }[];
-} {
+export async function getLocalDiskUsageMb(): Promise<number> {
   const storageBase = getStorageBase();
-  if (!fs.existsSync(storageBase)) {
-    return { storagePath: storageBase, totalPatients: 0, totalStudies: 0, totalSizeMb: 0, patients: [] };
-  }
+  if (!fs.existsSync(storageBase)) return 0;
 
-  let totalSizeBytes = 0;
-  const patients: { name: string; studyCount: number }[] = [];
-
-  const patientDirs = fs.readdirSync(storageBase, { withFileTypes: true }).filter((d) => d.isDirectory());
-
-  for (const patDir of patientDirs) {
-    const patPath = path.join(storageBase, patDir.name);
-    let studyDirs: any[] = [];
+  async function getDirSize(dirPath: string): Promise<number> {
+    let size = 0;
     try {
-      studyDirs = fs.readdirSync(patPath, { withFileTypes: true }).filter((d) => d.isDirectory());
-    } catch {
-      studyDirs = [];
-    }
-    for (const studyDir of studyDirs) {
-      const studyPath = path.join(patPath, studyDir.name);
-      try {
-        for (const file of fs.readdirSync(studyPath)) {
-          const stat = fs.statSync(path.join(studyPath, file));
-          if (stat.isFile()) totalSizeBytes += stat.size;
+      const files = await fs.promises.readdir(dirPath, { withFileTypes: true });
+      for (const file of files) {
+        const fullPath = path.join(dirPath, file.name);
+        if (file.isFile()) {
+          try {
+            const stat = await fs.promises.stat(fullPath);
+            size += stat.size;
+          } catch {}
+        } else if (file.isDirectory()) {
+          size += await getDirSize(fullPath);
         }
-      } catch {
-        /* ignorar */
       }
-    }
-    patients.push({ name: patDir.name, studyCount: studyDirs.length });
+    } catch {}
+    return size;
   }
 
-  return {
-    storagePath: storageBase,
-    totalPatients: patients.length,
-    totalStudies: patients.reduce((acc, p) => acc + p.studyCount, 0),
-    totalSizeMb: Math.round((totalSizeBytes / (1024 * 1024)) * 10) / 10,
-    patients,
-  };
+  const totalBytes = await getDirSize(storageBase);
+  return Math.round((totalBytes / (1024 * 1024)) * 10) / 10;
 }

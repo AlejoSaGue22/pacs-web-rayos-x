@@ -35,9 +35,9 @@ window.config = {
         imageRendering: 'wadors',
         thumbnailRendering: 'wadors',
         enableStudyLazyLoad: true,
-        supportsFuzzyMatching: true,
-        supportsWildcard: true,
-        staticWado: true,
+        supportsFuzzyMatching: false,
+        supportsWildcard: false,
+        staticWado: false,
         singlepart: 'bulkdata,video,pdf',
         onConfiguration: (dicomWebConfig, options) => {
           const token = sessionStorage.getItem('mini_pacs_token');

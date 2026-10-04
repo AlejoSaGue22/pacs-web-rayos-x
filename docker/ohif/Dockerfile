@@ -6,3 +6,6 @@ COPY ohif-config.js /usr/share/nginx/html/app-config.js
 
 # Exponer el puerto 80 (ya lo hace la imagen base, pero es buena práctica)
 EXPOSE 80
+
+# Fix service worker crash when running on HTTP (non-secure context)
+RUN sed -i 's/navigator.serviceWorker.getRegistrations()/navigator.serviceWorker ? navigator.serviceWorker.getRegistrations() : Promise.resolve([])/g' /usr/share/nginx/html/init-service-worker.js || true
