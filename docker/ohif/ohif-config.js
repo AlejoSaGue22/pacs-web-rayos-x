@@ -34,7 +34,7 @@ window.config = {
         qidoSupportsIncludeField: true,
         imageRendering: 'wadors',
         thumbnailRendering: 'wadors',
-        enableStudyLazyLoad: true,
+        enableStudyLazyLoad: false,
         supportsFuzzyMatching: false,
         supportsWildcard: false,
         staticWado: false,

@@ -136,9 +136,14 @@ export async function exportStudyToLocalDisk(
             if (previewRes.ok) {
               const imgBuffer = Buffer.from(await previewRes.arrayBuffer());
               fs.writeFileSync(path.join(imagesDir, `imagen_${imgCount + 1}.jpg`), imgBuffer);
+              console.log(`[LocalExport] Guardada imagen_${imgCount + 1}.jpg (${imgBuffer.length} bytes)`);
               imgCount++;
+            } else {
+              console.warn(`[LocalExport] Error en preview HTTP ${previewRes.status}:`, await previewRes.text());
             }
-          } catch (e) {}
+          } catch (e) {
+            console.error(`[LocalExport] Error de red extrayendo preview para ${inst.ID}:`, e);
+          }
         }
         if (imgCount > 0) {
           console.log(`[LocalExport] ${imgCount} imagenes JPG extraidas y guardadas para visualización`);
