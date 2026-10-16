@@ -5,6 +5,49 @@ if (urlToken) {
   sessionStorage.setItem('mini_pacs_token', urlToken);
 }
 
+// OHIF obtiene las cabeceras DICOMweb desde su userAuthenticationService; la
+// propiedad `headers` devuelta por onConfiguration no se aplica a esas llamadas.
+// Añadimos el JWT a los XHR del proxy antes de enviarlos.
+const originalXhrOpen = XMLHttpRequest.prototype.open;
+const originalXhrSend = XMLHttpRequest.prototype.send;
+const originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+
+XMLHttpRequest.prototype.open = function (method, url, ...args) {
+  try {
+    this._miniPacsDicomWebRequest = new URL(url, window.location.href).pathname.startsWith(
+      '/api/dicom-web/'
+    );
+  } catch {
+    this._miniPacsDicomWebRequest = false;
+  }
+
+  return originalXhrOpen.call(this, method, url, ...args);
+};
+
+XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
+  if (this._miniPacsDicomWebRequest && name.toLowerCase() === 'authorization') {
+    const token = sessionStorage.getItem('mini_pacs_token');
+    if (token) {
+      value = `Bearer ${token}`;
+    }
+    this._miniPacsAuthorizationSet = true;
+  }
+
+  return originalSetRequestHeader.call(this, name, value);
+};
+
+XMLHttpRequest.prototype.send = function (...args) {
+  if (this._miniPacsDicomWebRequest && !this._miniPacsAuthorizationSet) {
+    const token = sessionStorage.getItem('mini_pacs_token');
+    if (token) {
+      originalSetRequestHeader.call(this, 'Authorization', `Bearer ${token}`);
+      this._miniPacsAuthorizationSet = true;
+    }
+  }
+
+  return originalXhrSend.apply(this, args);
+};
+
 window.config = {
   routerBasename: '/',
   extensions: [],
@@ -39,16 +82,6 @@ window.config = {
         supportsWildcard: true,
         staticWado: true,
         singlepart: 'bulkdata,video,pdf',
-        onConfiguration: (dicomWebConfig, options) => {
-          const token = sessionStorage.getItem('mini_pacs_token');
-          if (token) {
-            dicomWebConfig.headers = {
-              ...dicomWebConfig.headers,
-              Authorization: `Bearer ${token}`
-            };
-          }
-          return dicomWebConfig;
-        }
       },
     },
   ],
