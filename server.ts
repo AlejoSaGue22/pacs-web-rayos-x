@@ -135,22 +135,22 @@ async function startServer() {
     const monthStr = todayStr.slice(0, 7); // YYYY-MM
 
     const [totalPatients, studiesToday, studiesMonth, modalityCounts, statusCounts,
-           recentStudies, recentAudit, orthanc] = await Promise.all([
-      prisma.patient.count({ where: { isDeleted: false } }),
-      prisma.study.count({ where: { studyDate: todayStr } }),
-      prisma.study.count({ where: { studyDate: { gte: `${monthStr}-01`, lte: todayStr } } }),
-      prisma.study.groupBy({ by: ['modality'], _count: { modality: true } }),
-      prisma.study.groupBy({ by: ['status'], _count: { status: true } }),
-      prisma.study.findMany({
-        // Orden de llegada real (createdAt = momento del sync), no fecha DICOM:
-        // si la modalidad envía StudyDate vieja/vacía, igual aparece primero.
-        orderBy: [{ createdAt: 'desc' }],
-        take: 5,
-        include: { series: { include: { instances: true } } },
-      }),
-      prisma.auditLog.findMany({ orderBy: { timestamp: 'desc' }, take: 5 }),
-      pacsStore.getOrthancStatus(),
-    ]);
+      recentStudies, recentAudit, orthanc] = await Promise.all([
+        prisma.patient.count({ where: { isDeleted: false } }),
+        prisma.study.count({ where: { studyDate: todayStr } }),
+        prisma.study.count({ where: { studyDate: { gte: `${monthStr}-01`, lte: todayStr } } }),
+        prisma.study.groupBy({ by: ['modality'], _count: { modality: true } }),
+        prisma.study.groupBy({ by: ['status'], _count: { status: true } }),
+        prisma.study.findMany({
+          // Orden de llegada real (createdAt = momento del sync), no fecha DICOM:
+          // si la modalidad envía StudyDate vieja/vacía, igual aparece primero.
+          orderBy: [{ createdAt: 'desc' }],
+          take: 5,
+          include: { series: { include: { instances: true } } },
+        }),
+        prisma.auditLog.findMany({ orderBy: { timestamp: 'desc' }, take: 5 }),
+        pacsStore.getOrthancStatus(),
+      ]);
 
     const modalityCountsObj: Record<string, number> = {};
     modalityCounts.forEach((g: any) => { modalityCountsObj[g.modality] = g._count.modality; });
@@ -346,7 +346,7 @@ async function startServer() {
         action: 'ORTHANC_SYNC_MANUAL',
         description: `Sincronización manual disparada por ${req.user!.userName}`,
         ipAddress: req.ip || '127.0.0.1',
-      }).catch(() => {});
+      }).catch(() => { });
     }
     res.json(result);
   });
@@ -430,12 +430,12 @@ async function startServer() {
     try {
       const orthancUrl = process.env.ORTHANC_URL || 'http://localhost:8042';
       const token = Buffer.from(`${process.env.ORTHANC_USER}:${process.env.ORTHANC_PASS}`).toString('base64');
-      
+
       // Try 1: Assume identifier is Orthanc instance ID
       let response = await fetch(`${orthancUrl}/instances/${identifier}/file`, {
         headers: { Authorization: `Basic ${token}` },
       });
-      
+
       // Try 2: If failed, search by SOPInstanceUID in database
       if (!response.ok) {
         const instance = await pacsStore.getInstanceBySopInstanceUid(identifier);
@@ -446,11 +446,11 @@ async function startServer() {
           });
         }
       }
-      
+
       if (!response.ok) {
         return res.status(404).json({ error: 'DICOM file not found in Orthanc' });
       }
-      
+
       const arrayBuffer = await response.arrayBuffer();
       res.set({
         'Content-Type': 'application/dicom',
