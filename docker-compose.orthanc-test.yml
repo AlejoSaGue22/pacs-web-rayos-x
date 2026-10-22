@@ -1,0 +1,32 @@
+services:
+  orthanc-test:
+    # Imagen oficial fijada a una versión concreta; no usar :latest en esta prueba.
+    image: orthancteam/orthanc:26.9.1
+    container_name: pacs-orthanc-test
+    restart: "no"
+    ports:
+      # Por defecto usa los puertos de producción: detén el Orthanc productivo antes.
+      # Para ejecutarlo en paralelo, define ORTHANC_TEST_DICOM_HOST_PORT=4243,
+      # ORTHANC_TEST_HTTP_HOST_PORT=8043 y ORTHANC_TEST_NETWORK_ALIAS=orthanc-test.
+      - "${ORTHANC_TEST_DICOM_HOST_PORT:-4242}:4242"
+      - "${ORTHANC_TEST_HTTP_HOST_PORT:-8042}:8042"
+    volumes:
+      # Volumen nuevo, separado del volumen Orthanc de producción.
+      - orthanc_test_data:/var/lib/orthanc/db
+      - ./orthanc-test.json:/etc/orthanc/orthanc.json:ro
+      - ./orthanc-webhook.lua:/etc/orthanc/orthanc-webhook.lua:ro
+    environment:
+      # La imagen oficial crea el usuario Orthanc a partir de ORTHANC_PASSWORD.
+      ORTHANC_PASSWORD: ${ORTHANC_PASS:-pacs_secure_2026}
+      BACKEND_WEBHOOK_URL: ${BACKEND_WEBHOOK_URL:-http://app:3000/api/orthanc/webhook}
+      BACKEND_WEBHOOK_SECRET: ${WEBHOOK_SECRET:-pacs-webhook-secret-2026}
+    networks:
+      default:
+        # Con el mismo nombre de proyecto y producción detenida, React sigue usando
+        # http://orthanc:8042 pero llega a este contenedor de prueba.
+        aliases:
+          - ${ORTHANC_TEST_NETWORK_ALIAS:-orthanc}
+
+volumes:
+  orthanc_test_data:
+    name: ${ORTHANC_TEST_DATA_VOLUME:-pacs-orthanc-test-data}
