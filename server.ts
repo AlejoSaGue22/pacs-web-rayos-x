@@ -17,7 +17,7 @@ import { createServer as createViteServer } from 'vite';
 import bcrypt from 'bcryptjs';
 import { pacsStore, prisma } from './server/store.js';
 import { OrthancClient } from './server/orthancClient.js';
-import { authenticate, authorize, generateToken, AuthPayload } from './server/authMiddleware.js';
+import { authenticate, authenticateWithQueryToken, authorize, generateToken, AuthPayload } from './server/authMiddleware.js';
 import { generateStudyPdf } from './server/pdfReport.js';
 import { getLocalStorageStats } from './server/localDiskExporter.js';
 import { createProxyMiddleware } from 'http-proxy-middleware';
@@ -52,6 +52,8 @@ async function startServer() {
 
   // Lock global para no solapar sincronizaciones (manual, webhook, auto-sync).
   let syncInProgress = false;
+  // Reintentos para estudios que Orthanc aún estaba recibiendo (C-STORE en curso).
+  let syncRetryCount = 0;
   async function triggerSync(source: 'manual' | 'webhook' | 'auto'): Promise<any> {
     if (syncInProgress) {
       console.log(`[Sync:${source}] Omitida: ya hay una sincronización en curso`);
@@ -67,6 +69,18 @@ async function startServer() {
         io.emit('orthanc_status_changed', status);
       } catch { /* no romper el sync por el emit */ }
       io.emit('orthanc_sync_completed', { ...result, source });
+
+      // Si quedaron estudios aún en recepción, reintentar en breve (máx. ~3 min)
+      // para no dejarlos sin sincronizar cuando el auto-sync está apagado.
+      const pending = Number((result as any)?.unstableSkipped || 0);
+      if (pending > 0 && syncRetryCount < 6) {
+        syncRetryCount++;
+        console.log(`[Sync] ${pending} estudio(s) aún en recepción; reintento ${syncRetryCount}/6 en 30s`);
+        setTimeout(() => { triggerSync('auto').catch(() => { }); }, 30000);
+      } else if (pending === 0) {
+        syncRetryCount = 0;
+      }
+
       return result;
     } finally {
       syncInProgress = false;
@@ -302,7 +316,9 @@ async function startServer() {
     res.json(updated);
   });
 
-  // CORS Middleware específico para DICOMweb (necesario porque OHIF corre en otro puerto)
+  // DICOMweb Proxy para OHIF (bloque único: CORS + auth con fallback ?token= + proxy).
+  // OHIF v3 usa fetch (no solo XHR), por eso el header Bearer a veces no llega
+  // y el backend devolvía 401 {"error":"Token de autenticación requerido"}.
   app.use('/api/dicom-web', (req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -311,10 +327,7 @@ async function startServer() {
       return res.sendStatus(200);
     }
     next();
-  });
-
-  // DICOMweb Proxy para OHIF
-  app.use('/api/dicom-web', authenticate, (req, res, next) => {
+  }, authenticateWithQueryToken, (req, res, next) => {
     // Reemplazar el JWT de Mini PACS por el Basic Auth de Orthanc
     const token = Buffer.from(`${process.env.ORTHANC_USER}:${process.env.ORTHANC_PASS}`).toString('base64');
     req.headers['authorization'] = `Basic ${token}`;
@@ -329,8 +342,6 @@ async function startServer() {
       '^/': '/dicom-web/',
     }
   }));
-
-  // Orthanc DICOM REST API endpoints
   app.get('/api/orthanc/status', authenticate, async (req, res) => {
     res.json(await pacsStore.getOrthancStatus());
   });
@@ -536,30 +547,7 @@ async function startServer() {
     }
   });
 
-  // CORS Middleware específico para DICOMweb (necesario porque OHIF corre en otro puerto)
-  app.use('/api/dicom-web', (req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control');
-    if (req.method === 'OPTIONS') {
-      return res.sendStatus(200);
-    }
-    next();
-  });
-
-  // DICOMweb Proxy para OHIF
-  app.use('/api/dicom-web', authenticate, (req, res, next) => {
-    // Reemplazar el JWT de Mini PACS por el Basic Auth de Orthanc
-    const token = Buffer.from(`${process.env.ORTHANC_USER}:${process.env.ORTHANC_PASS}`).toString('base64');
-    req.headers['authorization'] = `Basic ${token}`;
-    next();
-  }, createProxyMiddleware({
-    target: process.env.ORTHANC_URL || 'http://localhost:8042',
-    changeOrigin: true,
-    pathRewrite: {
-      '^/': '/dicom-web/',
-    }
-  }));
+  // (Bloque DICOMweb duplicado eliminado: el proxy único está arriba, antes de /api/orthanc/*)
 
   // Export Endpoints
   app.get('/api/studies/:id/export/pdf', authenticate, async (req, res) => {

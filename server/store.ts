@@ -1,8 +1,7 @@
 import { PrismaClient } from '../src/generated/prisma/index.js';
 import { OrthancClient } from './orthancClient.js';
 import { parsePagination, buildOrderBy, buildPaginatedResult } from './pagination.js';
-import { exportStudyToLocalDisk, resolveStudyDiskPath } from './localDiskExporter.js';
-import fs from 'node:fs';
+import { exportStudyToLocalDisk, resolveStudyDiskPath, isStudyExportComplete } from './localDiskExporter.js';
 
 export const prisma = new PrismaClient();
 
@@ -250,6 +249,7 @@ class PacsStore {
     let syncedCount = 0;
     let exportedToDisk = 0;
     let online = false;
+    let unstableSkipped = 0;
 
     try {
       const orthancStudies = await OrthancClient.getStudies();
@@ -262,6 +262,15 @@ class PacsStore {
         try {
           const fullStudy = await OrthancClient.getStudy(orthancStudyId);
           const studyTags = fullStudy.MainDicomTags || {};
+
+          // Orthanc marca IsStable=false mientras sigue recibiendo instancias
+          // por C-STORE (ver StableAge en orthanc.json). Sincronizar/exportar
+          // ahora dejaría el estudio incompleto (p. ej. 1 sola imagen de 2).
+          // Se omite en esta pasada y se reintenta cuando ya esté estable.
+          if ((fullStudy as any).IsStable === false) {
+            unstableSkipped++;
+            continue;
+          }
 
           const studyInstanceIds = await this.getInstanceIdsForStudy(orthancStudyId);
           const firstInstId = studyInstanceIds.length > 0 ? studyInstanceIds[0] : null;
@@ -387,26 +396,31 @@ class PacsStore {
             }
           }
 
-          try {
-            const token = Buffer.from(`${process.env.ORTHANC_USER}:${process.env.ORTHANC_PASS}`).toString('base64');
-            const authHeader = `Basic ${token}`;
-            const orthancUrl = process.env.ORTHANC_URL || 'http://localhost:8042';
+          // El export local puede leer muchos DICOM y competir por I/O con C-STORE.
+          // Se deja opt-in para poder probar la recepción de Orthanc sin exports
+          // automáticos. El endpoint manual de re-exportación sigue disponible.
+          if (process.env.AUTO_EXPORT_STUDIES === 'true') {
+            try {
+              const token = Buffer.from(`${process.env.ORTHANC_USER}:${process.env.ORTHANC_PASS}`).toString('base64');
+              const authHeader = `Basic ${token}`;
+              const orthancUrl = process.env.ORTHANC_URL || 'http://localhost:8042';
 
-            const diskPath = await exportStudyToLocalDisk({
-              orthancStudyId,
-              patientName,
-              patientDocument: patientId,
-              studyDate,
-              studyDescription: studyTags.StudyDescription || '',
-              accessionNumber: studyTags.AccessionNumber || `ACC-${orthancStudyId.slice(-8)}`,
-              modality: instanceTags.Modality || 'DX',
-              studyInstanceUid: studyTags.StudyInstanceUID || '',
-              numberOfSeries: fullStudy.Series ? fullStudy.Series.length : 0,
-              numberOfInstances: studyInstanceIds.length,
-            }, orthancUrl, authHeader);
-            if (diskPath) exportedToDisk++;
-          } catch (exportErr) {
-            console.error(`[Sync] Error exportando estudio localmente:`, exportErr);
+              const diskPath = await exportStudyToLocalDisk({
+                orthancStudyId,
+                patientName,
+                patientDocument: patientId,
+                studyDate,
+                studyDescription: studyTags.StudyDescription || '',
+                accessionNumber: studyTags.AccessionNumber || `ACC-${orthancStudyId.slice(-8)}`,
+                modality: instanceTags.Modality || 'DX',
+                studyInstanceUid: studyTags.StudyInstanceUID || '',
+                numberOfSeries: fullStudy.Series ? fullStudy.Series.length : 0,
+                numberOfInstances: studyInstanceIds.length,
+              }, orthancUrl, authHeader);
+              if (diskPath) exportedToDisk++;
+            } catch (exportErr) {
+              console.error(`[Sync] Error exportando estudio localmente:`, exportErr);
+            }
           }
 
           syncedCount++;
@@ -434,9 +448,9 @@ class PacsStore {
     await this.addAuditLog({
       userId, userName, userRole,
       action: 'ORTHANC_SYNC',
-      description: `Sincronización con Servidor Orthanc. ${syncedCount} estudios nuevos importados (${exportedToDisk} respaldados en disco).`,
+      description: `Sincronización con Servidor Orthanc. ${syncedCount} estudios nuevos importados. Export automático a disco: ${process.env.AUTO_EXPORT_STUDIES === 'true' ? `${exportedToDisk} completados` : 'desactivado'}.`,
       ipAddress: '127.0.0.1',
-      details: `Servidor Orthanc: ${online ? 'en línea' : 'fuera de línea'}. Total estudios en BD: ${studyCount}. Respaldos en disco: ${exportedToDisk}.`,
+      details: `Servidor Orthanc: ${online ? 'en línea' : 'fuera de línea'}. Total estudios en BD: ${studyCount}. Export automático: ${process.env.AUTO_EXPORT_STUDIES === 'true' ? `${exportedToDisk} estudios` : 'desactivado'}.`,
     });
 
     return {
@@ -445,6 +459,8 @@ class PacsStore {
       syncedStudies: studyCount,
       newStudies: syncedCount,
       exportedToDisk,
+      autoExportEnabled: process.env.AUTO_EXPORT_STUDIES === 'true',
+      unstableSkipped,
     };
   }
 
@@ -481,7 +497,7 @@ class PacsStore {
         numberOfSeries: s.numberOfSeries,
         numberOfInstances: s.numberOfInstances,
       });
-      if (fs.existsSync(diskPath)) {
+      if (isStudyExportComplete(diskPath)) {
         skipped++;
         continue;
       }

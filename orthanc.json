@@ -93,8 +93,8 @@
   "BuiltinDecoderTranscoderOrder": "After",
 
   "IngestTranscoding": "1.2.840.10008.1.2.1",
-  "IngestTranscodingOfUncompressed": true,
-  "IngestTranscodingOfCompressed": true,
+  "IngestTranscodingOfUncompressed": false,
+  "IngestTranscodingOfCompressed": false,
 
   "DicomLossyTranscodingQuality": 90,
 

@@ -49,6 +49,9 @@ services:
       ORTHANC_USER: orthanc
       ORTHANC_PASS: pacs_secure_2026
       WEBHOOK_SECRET: pacs-webhook-secret-2026
+      # Prueba de recepción limpia: no exportar automáticamente a C:/MiniPACS/estudios.
+      # Se pueden reconstruir después con el endpoint/botón de re-exportación.
+      AUTO_EXPORT_STUDIES: "false"
       PORT: 3000
       NODE_ENV: production
       # En Docker el disco se monta aquí; en local Windows se usa C:/MiniPACS/estudios directo.

@@ -38,6 +38,33 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+export function authenticateWithQueryToken(req: Request, res: Response, next: NextFunction) {
+  // OHIF corre en otro origen (puerto 8080) y usa fetch/XHR. Como respaldo,
+  // aceptar el JWT también vía ?token= (o ?access_token=) y convertirlo a
+  // header Bearer para reutilizar la misma validación. Después se elimina
+  // del query/URL para que el proxy no lo reenvíe a Orthanc (su plugin
+  // DICOMweb responde 400 ante query params desconocidos).
+  const header = req.headers.authorization;
+  if ((!header || !header.startsWith('Bearer ')) && req.query) {
+    const qToken = (req.query as any).token || (req.query as any).access_token;
+    if (typeof qToken === 'string' && qToken.length > 0) {
+      req.headers.authorization = `Bearer ${qToken}`;
+      delete (req.query as any).token;
+      delete (req.query as any).access_token;
+      const qIndex = req.url.indexOf('?');
+      if (qIndex !== -1) {
+        const base = req.url.slice(0, qIndex);
+        const params = new URLSearchParams(req.url.slice(qIndex + 1));
+        params.delete('token');
+        params.delete('access_token');
+        const qs = params.toString();
+        req.url = qs ? `${base}?${qs}` : base;
+      }
+    }
+  }
+  return authenticate(req, res, next);
+}
+
 export function generateToken(payload: AuthPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '8h' });
 }
